@@ -1,6 +1,4 @@
-﻿using Sandbox.Common;
-using Sandbox.Common.ObjectBuilders.Gui;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
@@ -8,6 +6,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows.Forms;
 using VRage;
+using VRage.Game;
 using VRage.Input;
 using VRage.Library.Utils;
 using VRage.Utils;
@@ -34,6 +33,7 @@ namespace Sandbox.Graphics.GUI
 
         private bool m_drawScrollbar;
         private float m_scrollbarOffset;
+        private bool m_showTextShadow;
 
         private bool m_selectable;
 
@@ -147,7 +147,8 @@ namespace Sandbox.Graphics.GUI
             StringBuilder contents = null,
             bool drawScrollbar = true,
             MyGuiDrawAlignEnum textBoxAlign = MyGuiDrawAlignEnum.HORISONTAL_CENTER_AND_VERTICAL_CENTER,
-            bool selectable = false)
+            bool selectable = false,
+            bool showTextShadow = false)
             : base(position: position,
                     size: size,
                     colorMask: backgroundColor,
@@ -164,7 +165,7 @@ namespace Sandbox.Graphics.GUI
             m_scrollbarSize = new Vector2(0.0334f, MyGuiConstants.COMBOBOX_VSCROLLBAR_SIZE.Y);
             m_scrollbarSize = MyGuiConstants.COMBOBOX_VSCROLLBAR_SIZE;
             float minLineHeight = MyGuiManager.MeasureString(Font, m_lineHeightMeasure, TextScaleWithLanguage).Y;
-            m_label = new MyRichLabel(ComputeRichLabelWidth(), minLineHeight);
+            m_label = new MyRichLabel(ComputeRichLabelWidth(), minLineHeight) { ShowTextShadow = showTextShadow };
             m_label.TextAlign = textAlign;
             m_text = new StringBuilder();
             m_selection = new MyGuiControlMultilineSelection();
@@ -612,6 +613,11 @@ namespace Sandbox.Graphics.GUI
             private set { m_textScaleWithLanguage = value; }
         }
 
+        public bool ShowTextShadow
+        {
+            get { return m_showTextShadow; }
+        }
+
         /// <summary>
         /// Alignment of text as if you were specifying it in MS Word. This controls the appearance of text itself.
         /// </summary>
@@ -850,10 +856,14 @@ namespace Sandbox.Graphics.GUI
             public void CopyText(MyGuiControlMultilineText sender)
             {
                 ClipboardText = Regex.Replace(sender.Text.ToString().Substring(Start, Length), "\n", "\r\n");
-                Thread myth;
-                myth = new Thread(new System.Threading.ThreadStart(CopyToClipboard));
-                myth.ApartmentState = ApartmentState.STA;
-                myth.Start();
+
+                if (!string.IsNullOrEmpty(ClipboardText))
+                {
+                    Thread thread = new Thread(() => System.Windows.Forms.Clipboard.SetText(ClipboardText));
+                    thread.SetApartmentState(ApartmentState.STA);
+                    thread.Start();
+                    thread.Join();
+                }
             }
 
             public void CutText(MyGuiControlMultilineText sender)
@@ -869,11 +879,11 @@ namespace Sandbox.Graphics.GUI
             {
                 //First we erase the selection
                 EraseText(sender);
+
                 var prefix = sender.Text.ToString().Substring(0, sender.CarriagePositionIndex);
                 var suffix = sender.Text.ToString().Substring(sender.CarriagePositionIndex);
-                Thread myth;
 
-                myth = new Thread(new System.Threading.ThreadStart(PasteFromClipboard));
+                Thread myth = new Thread(new System.Threading.ThreadStart(PasteFromClipboard));
                 myth.ApartmentState = ApartmentState.STA;
                 myth.Start();
 
@@ -889,13 +899,6 @@ namespace Sandbox.Graphics.GUI
             {
                 ClipboardText = Clipboard.GetText();
             }
-
-            void CopyToClipboard()
-            {
-                if (ClipboardText != "")
-                    Clipboard.SetText(ClipboardText);
-            }
-
         }
         #endregion
 

@@ -13,6 +13,7 @@ namespace VRageMath
     /// Defines a vector with three components.
     /// </summary>
     [ProtoBuf.ProtoContract, Serializable]
+	[Unsharper.UnsharperDisableReflection()]
     public struct Vector3 : IEquatable<Vector3>
     {
         public static Vector3 Zero = new Vector3();
@@ -586,6 +587,23 @@ namespace VRageMath
             return vector3;
         }
 
+        public static bool GetNormalized(ref Vector3 value)
+        {
+            float length = (float)Math.Sqrt((double)value.X * (double)value.X + (double)value.Y * (double)value.Y + (double)value.Z * (double)value.Z);
+            if (length > 0.001f)
+            {
+                float num = 1f / length;
+                Vector3 vector3;
+                vector3.X = (float)value.X * num;
+                vector3.Y = (float)value.Y * num;
+                vector3.Z = (float)value.Z * num;
+                return true;
+            }
+
+            return false;
+        }
+
+
         /// <summary>
         /// Creates a unit vector from the specified vector, writing the result to a user-specified variable. The result is a vector one unit in length pointing in the same direction as the original vector.
         /// </summary>
@@ -1150,6 +1168,7 @@ namespace VRageMath
         //D3DXVECTOR3* WINAPI D3DXVec3TransformCoord
         //  ( D3DXVECTOR3 *pOut, CONST D3DXVECTOR3 *pV, CONST D3DXMATRIX *pM );
 
+#if NATIVE_SUPPORT
         /// <summary>Native Interop Function</summary>
         [DllImport("d3dx9_43.dll", EntryPoint = "D3DXVec3TransformCoord", CallingConvention = CallingConvention.StdCall, PreserveSig = true), SuppressUnmanagedCodeSecurityAttribute]
         private unsafe extern static Vector3* D3DXVec3TransformCoord_([Out] Vector3* pOut, [In] Vector3* pV,[In] Matrix* pM);
@@ -1165,7 +1184,7 @@ namespace VRageMath
                     D3DXVec3TransformCoord_(resultRef_, posRef_, matRef_);
             }
         }
-
+#endif
 
 
 
@@ -1736,6 +1755,26 @@ namespace VRageMath
                 case 2: Z = value; break;
                 default: SetDim((i % 3 + 3) % 3, value); break;  // reduce to 0..2
             }
+        }
+
+        public static Vector3 Ceiling(Vector3 v)
+        {
+            return new Vector3(Math.Ceiling(v.X), Math.Ceiling(v.Y), Math.Ceiling(v.Z));
+        }
+
+        public static Vector3 Floor(Vector3 v)
+        {
+            return new Vector3(Math.Floor(v.X), Math.Floor(v.Y), Math.Floor(v.Z));
+        }
+
+        public static Vector3 Round(Vector3 v)
+        {
+            return new Vector3(Math.Round(v.X), Math.Round(v.Y), Math.Round(v.Z));
+        }
+
+        public static Vector3 Round(Vector3 v,int numDecimals)
+        {
+            return new Vector3(Math.Round(v.X, numDecimals), Math.Round(v.Y, numDecimals), Math.Round(v.Z, numDecimals));
         }
     }
 

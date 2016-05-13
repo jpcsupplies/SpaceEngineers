@@ -57,6 +57,12 @@ namespace VRageMath
                                 left.Y + right.Y);
         }
 
+        public static Vector2I operator +(Vector2I left, int right)
+        {
+            return new Vector2I(left.X + right,
+                                left.Y + right);
+        }
+
         public static Vector2I operator -(Vector2I left, Vector2I right)
         {
             return new Vector2I(left.X - right.X,
@@ -134,7 +140,7 @@ namespace VRageMath
         {
             public bool Equals(Vector2I x, Vector2I y)
             {
-                return x.X == y.X & x.Y == y.Y;
+                return x.X == y.X && x.Y == y.Y;
             }
 
             public int GetHashCode(Vector2I obj)

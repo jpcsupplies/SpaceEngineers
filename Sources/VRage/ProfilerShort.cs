@@ -12,6 +12,7 @@ namespace VRage
     /// <summary>
     /// Helper class, "shortcuts" to profiler
     /// </summary>
+    [Unsharper.UnsharperDisableReflection()]
     public static class ProfilerShort
     {
         public const string PerformanceProfilingSymbol = VRageRender.Profiler.MyRenderProfiler.PerformanceProfilingSymbol;
@@ -63,6 +64,14 @@ namespace VRage
             if (MyRenderProxy.GetRenderProfiler() != null)
             {
                 MyRenderProxy.GetRenderProfiler().Commit();
+            }
+        }
+
+        public static void DestroyThread()
+        {
+            if (MyRenderProxy.GetRenderProfiler() != null)
+            {
+                MyRenderProxy.GetRenderProfiler().DestroyThread();
             }
         }
     }

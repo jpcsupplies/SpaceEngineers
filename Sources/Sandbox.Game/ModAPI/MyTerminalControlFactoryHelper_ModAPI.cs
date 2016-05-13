@@ -9,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using VRage.Game;
 
 namespace Sandbox.ModAPI
 {
@@ -110,7 +111,7 @@ namespace Sandbox.ModAPI
             m_valueControls.Clear();
         }
 
-        IMyGridTerminalSystem IMyTerminalActionsHelper.GetTerminalSystemForGrid(Sandbox.ModAPI.IMyCubeGrid grid)
+        IMyGridTerminalSystem IMyTerminalActionsHelper.GetTerminalSystemForGrid(VRage.Game.ModAPI.IMyCubeGrid grid)
         {
             var gridGroup = MyCubeGridGroups.Static.Logical.GetGroup(grid as MyCubeGrid);
             if (gridGroup != null && gridGroup.GroupData != null)

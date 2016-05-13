@@ -1,5 +1,4 @@
 ﻿using Sandbox.Common;
-using Sandbox.Common.Components;
 using Sandbox.Common.ObjectBuilders;
 using Sandbox.Definitions;
 using Sandbox.Engine.Utils;
@@ -19,9 +18,11 @@ using VRage.Compiler;
 using VRage.Library.Utils;
 using VRage.Serialization;
 using VRage.FileSystem;
-using VRage.Components;
+using VRage.Game.Components;
 using VRage.ObjectBuilders;
 using Sandbox.Game.Components;
+using VRage.Game;
+using VRage.Game.Definitions;
 
 namespace Sandbox.Game.World
 {
@@ -51,15 +52,24 @@ namespace Sandbox.Game.World
             Scripts.Clear();
             EntityScripts.Clear();
             SubEntityScripts.Clear();
-            if(Sync.IsServer)
+            if (Sync.IsServer)
+            {
                 LoadScripts(MyFileSystem.ContentPath);
-            LoadScripts(MySession.Static.CurrentPath);
-            ReadScripts(MySession.Static.CurrentPath);
-            foreach (var mod in MySession.Static.Mods)
-                LoadScripts(Path.Combine(MyFileSystem.ModsPath, mod.Name), mod.Name);
+            }
+            if (MySession.Static.CurrentPath != null)
+            {
+                LoadScripts(MySession.Static.CurrentPath);
+                ReadScripts(MySession.Static.CurrentPath);
+            }
+            if (MySession.Static.Mods != null)
+            {
+                foreach (var mod in MySession.Static.Mods)
+                    LoadScripts(Path.Combine(MyFileSystem.ModsPath, mod.Name), mod.Name);
+            }
+
             foreach (var ass in Scripts.Values)
             {
-                MySession.Static.RegisterComponentsFromAssembly(ass);
+                MySession.Static.RegisterComponentsFromAssembly(ass, true);
                 MySandboxGame.Log.WriteLine(string.Format("Script loaded: {0}", ass.FullName));
             }
             MySandboxGame.Log.DecreaseIndent();
@@ -70,6 +80,10 @@ namespace Sandbox.Game.World
 
         private void LoadScripts(string path, string modName = null)
         {
+#if BLIT
+			// unsupported runtime script compilation.
+			System.Diagnostics.Debug.Assert(false);
+#else
             if (!MyFakes.ENABLE_SCRIPTS)
                 return;
 
@@ -106,13 +120,19 @@ namespace Sandbox.Game.World
                     files.Add(scriptFile);
                 }
             }
-            Compile(files.ToArray(), string.Format("{0}_{1}",modName,scriptDir), isZip);
+            Compile(files.ToArray(),Path.Combine(MyFileSystem.ModsPath,string.Format("{0}_{1}",modName,scriptDir)), isZip);
             files.Clear();
-        }
+#endif
+		}
 
         private void Compile(IEnumerable<string> scriptFiles, string assemblyName, bool zipped)
         {
+#if BLIT
+			// unsupported runtime script compilation.
+			System.Diagnostics.Debug.Assert(false);
+#else
             Assembly assembly = null;
+            bool compiled = false;
             var c = new MyModContext();
             c.Init(assemblyName, assemblyName);
             if (zipped)
@@ -137,31 +157,33 @@ namespace Sandbox.Game.World
                     catch (Exception e)
                     {
                         MySandboxGame.Log.WriteLine(e);
-                        MyDefinitionErrors.Add(c, string.Format("Cannot load {0}",Path.GetFileName(file)) , ErrorSeverity.Error);
-                        MyDefinitionErrors.Add(c, e.Message, ErrorSeverity.Error);
+                        MyDefinitionErrors.Add(c, string.Format("Cannot load {0}",Path.GetFileName(file)) , TErrorSeverity.Error);
+                        MyDefinitionErrors.Add(c, e.Message, TErrorSeverity.Error);
                     }
                 }
-                IlCompiler.CompileFileModAPI(assemblyName, m_cachedFiles.ToArray(), out assembly, m_errors);
+                compiled = IlCompiler.CompileFileModAPI(assemblyName, m_cachedFiles.ToArray(), out assembly, m_errors);
             }
             else
             {
-                IlCompiler.CompileFileModAPI(assemblyName, scriptFiles.ToArray(), out assembly, m_errors);
+                compiled = IlCompiler.CompileFileModAPI(assemblyName, scriptFiles.ToArray(), out assembly, m_errors);
             }
-            if(assembly != null)
+            Debug.Assert(compiled == (assembly != null), "Compile results inconsistency!");
+            if(assembly != null && compiled)
                 AddAssembly(MyStringId.GetOrCompute(assemblyName), assembly);
             else
             {
-                MyDefinitionErrors.Add(c, string.Format("Compilation of {0} failed:", assemblyName), ErrorSeverity.Error);
+                MyDefinitionErrors.Add(c, string.Format("Compilation of {0} failed:", assemblyName), TErrorSeverity.Error);
                 MySandboxGame.Log.IncreaseIndent();
 				foreach (var error in m_errors)
 				{
-					MyDefinitionErrors.Add(c, error.ToString(), ErrorSeverity.Error);
+					MyDefinitionErrors.Add(c, error.ToString(), TErrorSeverity.Error);
 					Debug.Assert(false, error.ToString());
 				}
                 MySandboxGame.Log.DecreaseIndent();
                 m_errors.Clear();
             }
             m_cachedFiles.Clear();
+#endif
         }
 
         private void AddAssembly(MyStringId myStringId, Assembly assembly)
@@ -209,7 +231,7 @@ namespace Sandbox.Game.World
                                     {
                                         var c = new MyModContext();
                                         c.Init(assembly.FullName, assembly.FullName);
-                                        MyDefinitionErrors.Add(c, "Possible entity type script logic collision", ErrorSeverity.Warning);
+                                        MyDefinitionErrors.Add(c, "Possible entity type script logic collision", TErrorSeverity.Warning);
                                     }
 
                                     SubEntityScripts[new Tuple<Type, string>(descriptor.EntityBuilderType, subTypeName)].Add(type);
@@ -228,7 +250,7 @@ namespace Sandbox.Game.World
                                 {
                                     var c = new MyModContext();
                                     c.Init(assembly.FullName, assembly.FullName);
-                                    MyDefinitionErrors.Add(c, "Possible entity type script logic collision", ErrorSeverity.Warning);
+                                    MyDefinitionErrors.Add(c, "Possible entity type script logic collision", TErrorSeverity.Warning);
                                 }
 
                                 EntityScripts[descriptor.EntityBuilderType].Add(type);

@@ -25,40 +25,39 @@ namespace VRageRender
     static class MyScreenDependants
     {
         internal static MyDepthStencil m_resolvedDepth;
-        internal static MyRenderTarget m_particlesRT;
         internal static MyRenderTarget m_ambientOcclusion;
-//        internal static MyRenderTarget m_luminancePingpong;
+        internal static MyRenderTarget m_ambientOcclusionHelper;
 
-        internal static MyRWStructuredBuffer m_tileIndexes;
+        internal static MyRWStructuredBuffer m_tileIndices;
 
         internal static int TilesNum;
         internal static int TilesX;
+        internal static int TilesY;
 
         internal static void Resize(int width, int height, int samplesNum, int samplesQuality)
         {
             if (m_resolvedDepth != null) {
                 m_resolvedDepth.Release();
-                m_particlesRT.Release();
+                m_ambientOcclusionHelper.Release();
                 m_ambientOcclusion.Release();
-                m_tileIndexes.Release();
-//                m_luminancePingpong.Release();
+                m_tileIndices.Release();
             }
 
             m_resolvedDepth = new MyDepthStencil(width, height, 1, 0);
-            m_particlesRT = new MyRenderTarget(width, height, Format.R16G16B16A16_Float, 1, 0);
+            m_ambientOcclusionHelper = new MyRenderTarget(width, height, Format.R8G8B8A8_UNorm, 1, 0);
             m_ambientOcclusion = new MyRenderTarget(width, height, Format.R8G8B8A8_UNorm, 1, 0);
-//            m_luminancePingpong = new MyRenderTarget(width, height, Format.R11G11B10_Float, 1, 0);
             
-            int tilesNum = ((width + MyLightRendering.TILE_SIZE - 1) / MyLightRendering.TILE_SIZE) * ((height + MyLightRendering.TILE_SIZE - 1) / MyLightRendering.TILE_SIZE);
-            TilesNum = tilesNum;
             TilesX = (width + MyLightRendering.TILE_SIZE - 1) / MyLightRendering.TILE_SIZE;
-            m_tileIndexes = new MyRWStructuredBuffer(tilesNum + tilesNum * MyRender11Constants.MAX_POINT_LIGHTS, sizeof(uint));
+            TilesY = ((height + MyLightRendering.TILE_SIZE - 1) / MyLightRendering.TILE_SIZE);
+            TilesNum = TilesX * TilesY;
+            m_tileIndices = new MyRWStructuredBuffer(TilesNum + TilesNum * MyRender11Constants.MAX_POINT_LIGHTS, sizeof(uint), MyRWStructuredBuffer.UAVType.Default, true, "MyScreenDependants::tileIndices");
         }
     }
 
     class MyGBuffer
     {
-        internal List<MyHWResource> m_resources = new List<MyHWResource>();
+        internal const Format LBufferFormat = Format.R11G11B10_Float;
+        private readonly List<MyHWResource> m_resources = new List<MyHWResource>();
 
         internal void Resize(int width, int height, int samplesNum, int samplesQuality)
         {
@@ -77,7 +76,7 @@ namespace VRageRender
                 new MyRenderTarget(width, height, Format.R8G8B8A8_UNorm,
                 samplesNum, samplesQuality));
             m_resources.Insert((int)MyGbufferSlot.LBuffer,
-                new MyRenderTarget(width, height, Format.R11G11B10_Float,
+                new MyRenderTarget(width, height, LBufferFormat,
                 samplesNum, samplesQuality));
 
             if (MyRender11.MultisamplingEnabled)
@@ -85,7 +84,7 @@ namespace VRageRender
                 m_resources.Insert((int)MyGbufferSlot.DepthResolved,
                     new MyDepthStencil(width, height, 1, 0));
                 m_resources.Insert((int)MyGbufferSlot.LBufferResolved,
-                    new MyUnorderedAccessTexture(width, height, Format.R11G11B10_Float)); // 
+                    new MyUnorderedAccessTexture(width, height, LBufferFormat)); // 
             }
         }
 
@@ -107,19 +106,19 @@ namespace VRageRender
 
         internal void Clear()
         {
-            MyRender11.ImmediateContext.ClearDepthStencilView(DepthStencil.m_DSV,
+            MyRender11.DeviceContext.ClearDepthStencilView(DepthStencil.m_DSV,
                 DepthStencilClearFlags.Depth | DepthStencilClearFlags.Stencil, MyRender11.DepthClearValue, 0);
 
             foreach(var res in m_resources)
             {
                 var rt = res as IRenderTargetBindable;
                 if(rt != null)
-                    MyRender11.ImmediateContext.ClearRenderTargetView(rt.RTV, 
+                    MyRender11.DeviceContext.ClearRenderTargetView(rt.RTV, 
                         new Color4(0, 0, 0, 0));
 
                 var uav = res as IUnorderedAccessBindable;
                 if (uav != null)
-                    MyRender11.ImmediateContext.ClearUnorderedAccessView(uav.UAV, Int4.Zero);
+                    MyRender11.DeviceContext.ClearUnorderedAccessView(uav.UAV, Int4.Zero);
             }
         }
 

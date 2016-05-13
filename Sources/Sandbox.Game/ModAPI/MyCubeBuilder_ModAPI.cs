@@ -1,10 +1,12 @@
 ﻿using Sandbox.Game.Entities.Character;
-using Sandbox.ModAPI;
+using VRage.Game.ModAPI;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using VRage.Game;
 using VRage.ModAPI;
+using Sandbox.ModAPI;
 
 namespace Sandbox.Game.Entities
 {
@@ -25,16 +27,6 @@ namespace Sandbox.Game.Entities
         void IMyCubeBuilder.Activate()
         {
             Activate();
-        }
-
-        void IMyCubeBuilder.ActivateShipCreationClipboard(Common.ObjectBuilders.MyObjectBuilder_CubeGrid grid, VRageMath.Vector3 centerDeltaDirection, float dragVectorLength)
-        {
-            ActivateShipCreationClipboard(grid, centerDeltaDirection, dragVectorLength);
-        }
-
-        void IMyCubeBuilder.ActivateShipCreationClipboard(Common.ObjectBuilders.MyObjectBuilder_CubeGrid[] grids, VRageMath.Vector3 centerDeltaDirection, float dragVectorLength)
-        {
-            ActivateShipCreationClipboard(grids, centerDeltaDirection, dragVectorLength);
         }
 
         bool IMyCubeBuilder.BlockCreationIsActivated
@@ -96,7 +88,7 @@ namespace Sandbox.Game.Entities
             }
         }
 
-        void IMyCubeBuilder.StartNewGridPlacement(Common.ObjectBuilders.MyCubeSize cubeSize, bool isStatic)
+        void IMyCubeBuilder.StartNewGridPlacement(MyCubeSize cubeSize, bool isStatic)
         {
             StartNewGridPlacement(cubeSize, isStatic);
         }

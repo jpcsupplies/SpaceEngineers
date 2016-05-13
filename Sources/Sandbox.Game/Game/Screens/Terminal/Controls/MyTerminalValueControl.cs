@@ -35,7 +35,7 @@ namespace Sandbox.Game.Screens.Terminal.Controls
         /// Serializer which (de)serializes the value.
         /// </summary>
         public SerializerDelegate Serializer;
-
+#if !BLIT
         public Expression<Func<TBlock, TValue>> MemberExpression
         {
             set
@@ -44,6 +44,7 @@ namespace Sandbox.Game.Screens.Terminal.Controls
                 Setter = new SetterDelegate(value.CreateSetter());
             }
         }
+#endif
 
         public MyTerminalValueControl(string id)
             : base(id)
@@ -77,30 +78,41 @@ namespace Sandbox.Game.Screens.Terminal.Controls
         }
 
         public abstract TValue GetDefaultValue(TBlock block);
-        public abstract TValue GetMininum(TBlock block);
+        [Obsolete("Use GetMinimum instead")]
+        public TValue GetMininum(TBlock block)
+        {
+            return GetMinimum(block);
+        }
+        public abstract TValue GetMinimum(TBlock block);
         public abstract TValue GetMaximum(TBlock block);
 
-        public TValue GetValue(ModAPI.Ingame.IMyCubeBlock block)
+        public TValue GetValue(VRage.Game.ModAPI.Ingame.IMyCubeBlock block)
         {
             return GetValue(((TBlock)block));
         }
 
-        public void SetValue(ModAPI.Ingame.IMyCubeBlock block, TValue value)
+        public void SetValue(VRage.Game.ModAPI.Ingame.IMyCubeBlock block, TValue value)
         {
             SetValue(((TBlock)block), value);
         }
 
-        public TValue GetDefaultValue(ModAPI.Ingame.IMyCubeBlock block)
+        public TValue GetDefaultValue(VRage.Game.ModAPI.Ingame.IMyCubeBlock block)
         {
             return GetDefaultValue(((TBlock)block));
         }
 
-        public TValue GetMininum(ModAPI.Ingame.IMyCubeBlock block)
+        [Obsolete("Use GetMinimum instead")]
+        public TValue GetMininum(VRage.Game.ModAPI.Ingame.IMyCubeBlock block)
         {
-            return GetMininum(((TBlock)block));
+            return GetMinimum(((TBlock)block));
         }
 
-        public TValue GetMaximum(ModAPI.Ingame.IMyCubeBlock block)
+        public TValue GetMinimum(VRage.Game.ModAPI.Ingame.IMyCubeBlock block)
+        {
+            return GetMinimum(((TBlock)block));
+        }
+
+        public TValue GetMaximum(VRage.Game.ModAPI.Ingame.IMyCubeBlock block)
         {
             return GetMaximum(((TBlock)block));
         }

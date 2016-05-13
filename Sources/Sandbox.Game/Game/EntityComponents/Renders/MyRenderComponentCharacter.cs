@@ -5,8 +5,8 @@ using Sandbox.Definitions;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Lights;
 using Sandbox.Game.World;
+using Sandbox.Game.Weapons;
 using Sandbox.Graphics;
-using Sandbox.Graphics.TransparentGeometry;
 using System;
 using System.Collections.Generic;
 using Havok;
@@ -19,6 +19,8 @@ using Sandbox.Game.Entities.Character;
 using Sandbox.Game.GameSystems;
 using Sandbox.Game.Utils;
 using VRage.ModAPI;
+using VRage.Animations;
+using VRage.Game;
 
 namespace Sandbox.Game.Components
 {
@@ -277,7 +279,11 @@ namespace Sandbox.Game.Components
                 }
             }
 
-            if (MySession.ControlledEntity == character)
+            //Maybe this check is not needed at all? In every case we want the DrawBlood effect when damaged
+            if ( MySession.Static.ControlledEntity == character ||
+                 MySession.Static.ControlledEntity is MyCockpit && ((MyCockpit)MySession.Static.ControlledEntity).Pilot == character ||
+                 MySession.Static.ControlledEntity is MyLargeTurretBase && ((MyLargeTurretBase)MySession.Static.ControlledEntity).Pilot == character
+                )
             {
                 if (character.IsDead && character.CurrentRespawnCounter > 0)
                 {
@@ -286,7 +292,7 @@ namespace Sandbox.Game.Components
 
                 if (!character.IsDead && m_currentHitIndicatorCounter > 0)
                 {
-                    m_currentHitIndicatorCounter -= MyEngineConstants.UPDATE_STEP_SIZE_IN_SECONDS;
+                    m_currentHitIndicatorCounter -= VRage.Game.MyEngineConstants.UPDATE_STEP_SIZE_IN_SECONDS;
 
                     if (m_currentHitIndicatorCounter < 0)
                         m_currentHitIndicatorCounter = 0;
@@ -334,6 +340,10 @@ namespace Sandbox.Game.Components
             if (jetpack == null || !jetpack.CanDrawThrusts)
                 return;
 
+            var thrustComponent = Container.Get<MyEntityThrustComponent>();
+            if (thrustComponent == null)
+                return;
+
             //VRageRender.MyRenderProxy.DebugDrawLine3D(WorldMatrix.Translation, WorldMatrix.Translation + Physics.LinearAcceleration, Color.White, Color.Green, false);
 
             var worldToLocal = MatrixD.Invert(Container.Entity.PositionComp.WorldMatrix);
@@ -352,7 +362,8 @@ namespace Sandbox.Game.Components
                     if (updateCalled)
                         thrust.ThrustRadius = MyUtils.GetRandomFloat(0.9f, 1.1f) * flameScale;
 
-                    float strength = Vector3.Dot(forward, -Container.Entity.Physics.LinearAcceleration);
+                    float strength = Vector3.Dot(forward, -Vector3.Transform(thrustComponent.FinalThrust, Entity.WorldMatrix.GetOrientation())/Entity.Physics.Mass);
+
                     strength = MathHelper.Clamp(strength * 0.09f, 0.1f, 1f);
 
                     if (strength > 0 && thrust.ThrustRadius > 0)
@@ -424,7 +435,7 @@ namespace Sandbox.Game.Components
             foreach (var thrustDefinition in definition.Jetpack.Thrusts)
             {
                 int index;
-                var thrustBone = m_skinnedEntity.FindBone(thrustDefinition.ThrustBone, out index);
+                var thrustBone = m_skinnedEntity.AnimationController.FindBone(thrustDefinition.ThrustBone, out index);
 	            if (thrustBone == null)
 					continue;
 
@@ -470,9 +481,10 @@ namespace Sandbox.Game.Components
             m_light.UseInForwardRender = true;
             m_light.ReflectorTexture = definition.ReflectorTexture;
             m_light.Range = 1;
+            m_light.GlossFactor = 0;
 
             MyCharacterBone leftGlareBone = null;
-            if (definition.LeftLightBone != String.Empty) leftGlareBone = m_skinnedEntity.FindBone(definition.LeftLightBone, out m_leftLightIndex);
+            if (definition.LeftLightBone != String.Empty) leftGlareBone = m_skinnedEntity.AnimationController.FindBone(definition.LeftLightBone, out m_leftLightIndex);
             if (leftGlareBone != null)
             {
                 m_leftGlare = MyLights.AddLight();
@@ -487,7 +499,7 @@ namespace Sandbox.Game.Components
             }
 
             MyCharacterBone rightGlareBone = null;
-            if (definition.RightLightBone != String.Empty) rightGlareBone = m_skinnedEntity.FindBone(definition.RightLightBone, out m_rightLightIndex);
+            if (definition.RightLightBone != String.Empty) rightGlareBone = m_skinnedEntity.AnimationController.FindBone(definition.RightLightBone, out m_rightLightIndex);
             if (rightGlareBone != null)
             {
                 m_rightGlare = MyLights.AddLight();
@@ -539,10 +551,10 @@ namespace Sandbox.Game.Components
             {
                 MyCharacter character = m_skinnedEntity as MyCharacter;
 
-                m_lightLocalPosition = new Vector3(0, 0, 0.3f);
+                m_lightLocalPosition = character.Definition.LightOffset;
 
                 MatrixD headMatrix = character.GetHeadMatrix(false, true, false);
-                MatrixD headMatrixAnim = character.GetHeadMatrix(false, true, true);
+                MatrixD headMatrixAnim = character.GetHeadMatrix(false, true, true, true);
 
                 if (m_oldReflectorAngle != MyCharacter.REFLECTOR_DIRECTION)
                 {

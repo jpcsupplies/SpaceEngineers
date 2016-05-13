@@ -1,5 +1,5 @@
 ﻿using Sandbox.Common;
-using Sandbox.Common.Components;
+
 using Sandbox.Common.ObjectBuilders;
 using Sandbox.Definitions;
 using Sandbox.Engine.Voxels;
@@ -18,13 +18,15 @@ using VRage.Voxels;
 using VRage.Serialization;
 using VRageMath;
 using Sandbox.Game.World.Generator;
+using VRage.Game;
 using VRage.Library.Utils;
 using VRage.ModAPI;
-using VRage.Components;
+using VRage.Game.Components;
+using VRage.Game.ModAPI;
 
 namespace Sandbox.Game.World.Generator
 {
-    [MySessionComponentDescriptor(MyUpdateOrder.BeforeSimulation)]
+    [MySessionComponentDescriptor(MyUpdateOrder.BeforeSimulation, 500, typeof(MyObjectBuilder_Encounters))]
     class MyEncounterGenerator : MySessionComponentBase
     {
         private const double m_minDistanceToRecognizeMovement = 100.0; 
@@ -207,12 +209,12 @@ namespace Sandbox.Game.World.Generator
                 Vector3D direction = Vector3D.Forward;
                 Vector3D upVector = Vector3D.Up;
 
-                var spawningOptions = spawnGroup.ReactorsOn ? Sandbox.ModAPI.SpawningOptions.None : Sandbox.ModAPI.SpawningOptions.TurnOffReactors;
+                var spawningOptions = spawnGroup.ReactorsOn ? VRage.Game.ModAPI.SpawningOptions.None : VRage.Game.ModAPI.SpawningOptions.TurnOffReactors;
                 if (selectedPrefab.Speed > 0.0f)
                 {
-                    spawningOptions = Sandbox.ModAPI.SpawningOptions.RotateFirstCockpitTowardsDirection |
-                                     Sandbox.ModAPI.SpawningOptions.SpawnRandomCargo |
-                                     Sandbox.ModAPI.SpawningOptions.DisableDampeners;
+                    spawningOptions = VRage.Game.ModAPI.SpawningOptions.RotateFirstCockpitTowardsDirection |
+                                     VRage.Game.ModAPI.SpawningOptions.SpawnRandomCargo |
+                                     VRage.Game.ModAPI.SpawningOptions.DisableDampeners;
 
                     float centerArcRadius = (float)Math.Atan(MyNeutralShipSpawner.NEUTRAL_SHIP_FORBIDDEN_RADIUS / placePosition.Length());
                     direction = -Vector3D.Normalize(placePosition);
@@ -226,7 +228,7 @@ namespace Sandbox.Game.World.Generator
 
                     upVector = Vector3D.CalculatePerpendicularVector(direction);
                 }
-                spawningOptions |= Sandbox.ModAPI.SpawningOptions.DisableSave;
+                spawningOptions |= VRage.Game.ModAPI.SpawningOptions.DisableSave;
 
                 if (selectedPrefab.PlaceToGridOrigin) spawningOptions |= SpawningOptions.UseGridOrigin;
 
@@ -259,7 +261,7 @@ namespace Sandbox.Game.World.Generator
 
             float rnd = m_random.NextFloat(0.0f, m_spawnGroupTotalFrequencies);
             int selectedEncounter = 0;
-            while (selectedEncounter < m_spawnGroupCumulativeFrequencies.Count())
+            while (selectedEncounter < m_spawnGroupCumulativeFrequencies.Count)
             {
                 if (rnd <= m_spawnGroupCumulativeFrequencies[selectedEncounter])
                     break;
@@ -267,8 +269,8 @@ namespace Sandbox.Game.World.Generator
                 ++selectedEncounter;
             }
 
-            if (selectedEncounter >= m_spawnGroupCumulativeFrequencies.Count())
-                selectedEncounter = m_spawnGroupCumulativeFrequencies.Count() - 1;
+            if (selectedEncounter >= m_spawnGroupCumulativeFrequencies.Count)
+                selectedEncounter = m_spawnGroupCumulativeFrequencies.Count - 1;
             return selectedEncounter;
         }
 

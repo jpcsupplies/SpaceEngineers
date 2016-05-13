@@ -1,5 +1,5 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <ProjectGuid>{5CD034C8-A242-4BD6-94F4-F20C655A69E8}</ProjectGuid>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
@@ -8,7 +8,7 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>Sandbox</RootNamespace>
     <AssemblyName>SpaceEngineers</AssemblyName>
-    <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.6.1</TargetFrameworkVersion>
     <ApplicationIcon>SpaceEngineers.ico</ApplicationIcon>
     <Thumbnail>GameThumbnail.png</Thumbnail>
     <PublishUrl>publish\</PublishUrl>
@@ -75,6 +75,7 @@
     <GenerateSerializationAssemblies>Auto</GenerateSerializationAssemblies>
     <ErrorReport>prompt</ErrorReport>
     <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
+    <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
     <OutputPath>bin\x64\Release\Bin64\</OutputPath>
@@ -87,6 +88,7 @@
     <UseVSHostingProcess>false</UseVSHostingProcess>
     <ErrorReport>prompt</ErrorReport>
     <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
+    <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release Official|x86'">
     <OutputPath>$(SolutionDir)Output\Bin\</OutputPath>
@@ -99,6 +101,7 @@
     <ErrorReport>prompt</ErrorReport>
     <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
     <UseVSHostingProcess>false</UseVSHostingProcess>
+    <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release Official|x64'">
     <OutputPath>$(SolutionDir)Output\Bin64\</OutputPath>
@@ -111,6 +114,7 @@
     <UseVSHostingProcess>false</UseVSHostingProcess>
     <ErrorReport>prompt</ErrorReport>
     <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
+    <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <PropertyGroup>
     <ContentPath>$(MSBuildProjectDirectory)\Content</ContentPath>
@@ -163,7 +167,18 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <None Include="App.config" />
-    <None Include="Content\Data\AmmoMagazines.sbc" />
+    <None Include="Content\Data\Characters_animals.sbc" />
+    <None Include="Content\Data\Decals.sbc" />
+    <None Include="Content\Data\EntityComponents.sbc">
+      <SubType>Designer</SubType>
+    </None>
+    <None Include="Content\Data\EntityContainers.sbc">
+      <SubType>Designer</SubType>
+    </None>
+    <None Include="Content\Data\GoodAIControlHandTools.sbc" />
+    <None Include="Content\Data\AmmoMagazines.sbc">
+      <SubType>Designer</SubType>
+    </None>
     <None Include="Content\Data\Ammos.sbc" />
     <None Include="Content\Data\Animations.sbc" />
     <None Include="Content\Data\Audio.sbc">
@@ -180,9 +195,13 @@
     <None Include="Content\Data\Characters.sbc">
       <SubType>Designer</SubType>
     </None>
-    <None Include="Content\Data\Components.sbc" />
+    <None Include="Content\Data\Components.sbc">
+      <SubType>Designer</SubType>
+    </None>
     <None Include="Content\Data\Configuration.sbc" />
-    <None Include="Content\Data\ContainerTypes.sbc" />
+    <None Include="Content\Data\ContainerTypes.sbc">
+      <SubType>Designer</SubType>
+    </None>
     <None Include="Content\Data\CubeBlocks.sbc">
       <SubType>Designer</SubType>
     </None>
@@ -191,8 +210,12 @@
     <None Include="Content\Data\Environment.sbc">
       <SubType>Designer</SubType>
     </None>
-    <None Include="Content\Data\EnvironmentItemClasses.sbc" />
-    <None Include="Content\Data\GasProperties.sbc" />
+    <None Include="Content\Data\EnvironmentItemClasses.sbc">
+      <SubType>Designer</SubType>
+    </None>
+    <None Include="Content\Data\GasProperties.sbc">
+      <SubType>Designer</SubType>
+    </None>
     <None Include="Content\Data\GlobalEvents.sbc" />
     <None Include="Content\Data\HandItems.sbc">
       <SubType>Designer</SubType>
@@ -200,11 +223,16 @@
     <None Include="Content\Data\Localization\MyTexts.resx">
       <SubType>Designer</SubType>
     </None>
-    <None Include="Content\Data\MaterialProperties.sbc" />
+    <None Include="Content\Data\MaterialProperties.sbc">
+      <SubType>Designer</SubType>
+    </None>
     <None Include="Content\Data\PhysicalItems.sbc">
       <SubType>Designer</SubType>
     </None>
     <None Include="Content\Data\PhysicalMaterials.sbc" />
+    <None Include="Content\Data\PlanetGeneratorDefinitions.sbc">
+      <SubType>Designer</SubType>
+    </None>
     <None Include="Content\Data\Prefabs\Base1.sbc" />
     <None Include="Content\Data\Prefabs\Base4.sbc" />
     <None Include="Content\Data\Prefabs\BaseEasyStart1.sbc" />
@@ -263,11 +291,18 @@
     <None Include="Content\Data\SpawnGroups.sbc">
       <SubType>Designer</SubType>
     </None>
-    <None Include="Content\Data\Stats.sbc" />
+    <None Include="Content\Data\Stats.sbc">
+      <SubType>Designer</SubType>
+    </None>
     <None Include="Content\Data\TransparentMaterials.sbc">
       <SubType>Designer</SubType>
     </None>
-    <None Include="Content\Data\Trees.sbc" />
+    <None Include="Content\Data\Trees.sbc">
+      <SubType>Designer</SubType>
+    </None>
+    <None Include="Content\Data\VoxelMaterialChanges.sbc">
+      <SubType>Designer</SubType>
+    </None>
     <None Include="Content\Data\VoxelMaterials.sbc">
       <SubType>Designer</SubType>
     </None>
@@ -375,6 +410,9 @@
     <Exec Command="mklink /J &quot;$(OutDir)..\Content\Data&quot; &quot;$(ProjectDir)Content\Data&quot;" IgnoreExitCode="true" Condition="$(DataFromSources)==true" />
     <Exec Command="mklink /J &quot;$(OutDir)..\Content\Effects2&quot; &quot;$(ProjectDir)Content\Effects2&quot;" IgnoreExitCode="true" Condition="$(EffectsFromSources)==true" />
     <Exec Command="mklink /J &quot;$(OutDir)..\Content\Shaders&quot; &quot;$(ProjectDir)Content\Shaders&quot;" IgnoreExitCode="true" Condition="$(EffectsFromSources)==true" />
+    <!-- This will create link for common texts -->
+    <RemoveDir Directories="$(OutDir)..\Content\Data\Localization\Common" ContinueOnError="true" />
+    <Exec Command="mklink /J &quot;$(OutDir)..\Content\Data\Localization\Common&quot; $(ProjectDir)..\VRage.Game\Content\Data\Localization" IgnoreExitCode="true" />
     <!-- Link the rest of content subdirs (on GitHub, this is linked from Steam; on SVN this is linked from source location) -->
     <ItemGroup>
       <ContentSubdirs Include="$([System.IO.Directory]::GetDirectories(&quot;$(ContentPath)&quot;))" />
@@ -385,9 +423,11 @@
     <ItemGroup>
       <Redists86 Include="$(ProjectDir)Redists\x86\*.*" />
       <Redists64 Include="$(ProjectDir)Redists\x64\*.*" />
+      <BrainSimulatorBinaries Include="$(ProjectDir)..\..\3rd\BrainSimulator\**\*.*" />
     </ItemGroup>
     <Copy Condition="'$(Configuration)|$(Platform)' == 'Release Official|x86'" SourceFiles="@(Redists86)" DestinationFolder="$(OutDir)" />
     <Copy Condition="'$(Configuration)|$(Platform)' == 'Release Official|x64'" SourceFiles="@(Redists64)" DestinationFolder="$(OutDir)" />
+    <Copy Condition="'$(Configuration)|$(Platform)' == 'Release Official|x64'" SourceFiles="@(BrainSimulatorBinaries)" DestinationFolder="$(OutDir)%(RecursiveDir)" />
   </Target>
   <PropertyGroup>
     <PostBuildEvent>xcopy /y /s "$(ProjectDir)..\..\3rd\SQLite\*.*" "$(TargetDir)"

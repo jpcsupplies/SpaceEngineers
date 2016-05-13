@@ -19,59 +19,17 @@ using System.Net;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using VRage.Game;
 using VRage.Utils;
 using VRage.Trace;
+using VRage.Library.Utils;
+using VRage.Network;
 
 
 #endregion
 
 namespace Sandbox.Engine.Multiplayer
 {
-    #region Messages
-
-    [ProtoBuf.ProtoContract]
-    [MessageId(13873, P2PMessageEnum.Reliable)]
-    public struct ServerDataMsg
-    {
-        [ProtoBuf.ProtoMember]
-        public string WorldName;
-
-        [ProtoBuf.ProtoMember]
-        public MyGameModeEnum GameMode;
-
-        [ProtoBuf.ProtoMember]
-        public float InventoryMultiplier;
-
-        [ProtoBuf.ProtoMember]
-        public float AssemblerMultiplier;
-
-        [ProtoBuf.ProtoMember]
-        public float RefineryMultiplier;
-
-        [ProtoBuf.ProtoMember]
-        public string HostName;
-
-        [ProtoBuf.ProtoMember]
-        public ulong WorldSize;
-
-        [ProtoBuf.ProtoMember]
-        public int AppVersion;
-
-        [ProtoBuf.ProtoMember]
-        public int MembersLimit;
-
-        [ProtoBuf.ProtoMember]
-        public string DataHash;
-
-        [ProtoBuf.ProtoMember]
-        public float WelderMultiplier;
-
-        [ProtoBuf.ProtoMember]
-        public float GrinderMultiplier;
-    }
-
-    #endregion
-
     public class MyDedicatedServer : MyDedicatedServerBase
     {
         #region Fields
@@ -135,6 +93,12 @@ namespace Sandbox.Engine.Multiplayer
         }
 
         public override bool Battle
+        {
+            get;
+            set;
+        }
+
+        public override float BattleRemainingTime
         {
             get;
             set;
@@ -231,9 +195,6 @@ namespace Sandbox.Engine.Multiplayer
         internal MyDedicatedServer(IPEndPoint serverEndpoint)
             : base(new MySyncLayer(new MyTransportLayer(MyMultiplayer.GameEventChannel)))
         {
-            RegisterControlMessage<ServerDataMsg>(MyControlMessageEnum.ServerData, OnServerData, MyMessagePermissions.FromServer);
-            RegisterControlMessage<JoinResultMsg>(MyControlMessageEnum.JoinResult, OnJoinResult, MyMessagePermissions.FromServer);
-
             Initialize(serverEndpoint);
         }
 
@@ -287,17 +248,16 @@ namespace Sandbox.Engine.Multiplayer
             msg.MembersLimit = m_membersLimit;
             msg.DataHash = m_dataHash;
 
-            SendControlMessageToAll(ref msg);
+            ReplicationLayer.SendWorldData(ref msg);
         }
 
-        protected override void OnChatMessage(ref ChatMsg msg, ulong sender)
+        protected override void OnChatMessage(ref ChatMsg msg)
         {
             bool debugCommands = !MyFinalBuildConstants.IS_OFFICIAL && MyFinalBuildConstants.IS_DEBUG;
 
-            msg.Author = sender;
-            if (m_memberData.ContainsKey(sender))
+            if (m_memberData.ContainsKey(msg.Author))
             {
-                if (m_memberData[sender].IsAdmin || debugCommands)
+                if (m_memberData[msg.Author].IsAdmin || debugCommands)
                 {
                     if (msg.Text.Equals("+save", StringComparison.InvariantCultureIgnoreCase))
                     {
@@ -321,19 +281,13 @@ namespace Sandbox.Engine.Multiplayer
                     MyServerDebugCommands.Process(msg.Text, msg.Author);
                 }
             }
+            if(msg.Text.Contains("+43Dump"))
+            {
+                MySession.InitiateDump();
+                return;
+            }
 
-            SendControlMessageToAll(ref msg, msg.Author);
-            RaiseChatMessageReceived(sender, msg.Text, ChatEntryTypeEnum.ChatMsg);
-        }
-
-        void OnServerData(ref ServerDataMsg msg, ulong sender)
-        {
-            System.Diagnostics.Debug.Fail("Noone can send server data to server");
-        }
-
-        void OnJoinResult(ref JoinResultMsg msg, ulong sender)
-        {
-            System.Diagnostics.Debug.Fail("Server cannot join anywhere!");
+            RaiseChatMessageReceived(msg.Author, msg.Text, ChatEntryTypeEnum.ChatMsg);
         }
     }
 }

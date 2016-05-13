@@ -1,15 +1,12 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using System.Text;
 using System.Xml;
 using System.Xml.Schema;
 using System.Xml.Serialization;
 using VRage.Generics;
 using VRage.ObjectBuilders;
 
-namespace Sandbox.Common
+namespace VRage.Game
 {
     class CustomRootReader : XmlReader
     {
@@ -144,7 +141,6 @@ namespace Sandbox.Common
 
     }
 
-
     public class MyAbstractXmlSerializer<TAbstractBase> : IXmlSerializable
     {
         [ThreadStatic]
@@ -200,6 +196,7 @@ namespace Sandbox.Common
         /// <remarks>DO NOT USE THIS CONSTRUCTOR</remarks>
         public MyAbstractXmlSerializer()
         {
+            // Debug.WriteLine("AbstractXmlSerializer instantiated for: " + typeof(TAbstractBase).Name);
             // Default Ctor (Required for Xml Serialization - DO NOT USE)
         }
 
@@ -224,7 +221,11 @@ namespace Sandbox.Common
             // Cast the Data back from the Abstract Type.
             string typeAttrib = reader.GetAttribute("xsi:type");
 
+#if DEBUG
+            if (typeAttrib == null || !MyObjectBuilderSerializer.IsSerializerAvailable(typeAttrib))
+#else
             if (typeAttrib == null)
+#endif
             {
                 typeAttrib = MyObjectBuilderSerializer.GetSerializedName(typeof(TAbstractBase));
             }

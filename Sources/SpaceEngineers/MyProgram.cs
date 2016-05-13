@@ -26,6 +26,7 @@ using VRage.FileSystem;
 using Sandbox;
 using SpaceEngineers.Game;
 using System.Runtime.CompilerServices;
+using VRage.Game;
 
 #endregion
 
@@ -75,10 +76,12 @@ namespace SpaceEngineers
                 return;
             }
 
+            var appDataPath = GetAppDataPath(args);
+
             MyInitializer.InvokeBeforeRun(
                 AppId,
                 "SpaceEngineers",
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SpaceEngineers"));
+                appDataPath);
 
             MyInitializer.InitCheckSum();
 
@@ -118,6 +121,8 @@ namespace SpaceEngineers
                 }
                 return;
             }
+
+                    
             if (MyFakes.DETECT_LEAKS)
             {
                 //Slow down
@@ -143,11 +148,40 @@ namespace SpaceEngineers
             MyInitializer.InvokeAfterRun();
         }
 
+        /// <summary>
+        /// Determines the application data path to use for configuration, save games and other dynamic data.
+        /// </summary>
+        /// <param name="args"></param>
+        /// <returns></returns>
+        private static string GetAppDataPath(string[] args)
+        {
+            string appDataPath = null;
+
+            // A user can customize their own data path by calling 
+            // SpaceEngineers.exe -appdata "%appdata%/MyCustomFolder".
+            // The %appdata% macro (or any other such environment variable macro) 
+            // will be expanded.
+            var appDataPathIndex = Array.IndexOf(args, "-appdata") + 1;
+            if (appDataPathIndex != 0 && args.Length > appDataPathIndex)
+            {
+                var path = args[appDataPathIndex];
+                if (!path.StartsWith("-"))
+                    appDataPath = Path.GetFullPath(Environment.ExpandEnvironmentVariables(path));
+            }
+
+            // No customized data path has been set, so we fall back to the default.
+            if (appDataPath == null)
+                appDataPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SpaceEngineers");
+            return appDataPath;
+        }
+
         static void RunInternal(string[] args)
         {
             using (MySteamService steamService = new MySteamService(MySandboxGame.IsDedicated, AppId))
             {
                 IMyRender renderer = null;
+
+                SpaceEngineersGame.SetupPerGameSettings();
 
                 if (MySandboxGame.IsDedicated)
                 {
@@ -156,7 +190,7 @@ namespace SpaceEngineers
                 else if (MyFakes.ENABLE_DX11_RENDERER)
                 {
                     var rendererId = MySandboxGame.Config.GraphicsRenderer;
-                    if (rendererId.HasValue && rendererId.Value == SpaceEngineersGame.DirectX11RendererKey)
+                    if (rendererId == MySandboxGame.DirectX11RendererKey)
                     {
                         renderer = new MyDX11Render();
                         if (!renderer.IsSupported)
@@ -169,7 +203,7 @@ namespace SpaceEngineers
                     if (renderer == null)
                     {
                         renderer = new MyDX9Render();
-                        rendererId = SpaceEngineersGame.DirectX9RendererKey;
+                        rendererId = MySandboxGame.DirectX9RendererKey;
                     }
 
                     MySandboxGame.Config.GraphicsRenderer = rendererId;
@@ -178,6 +212,8 @@ namespace SpaceEngineers
                 {
                     renderer = new MyDX9Render();
                 }
+
+                MyFakes.ENABLE_PLANETS &= MySandboxGame.Config.GraphicsRenderer != MySandboxGame.DirectX9RendererKey;
 
                 VRageRender.MyRenderProxy.Initialize(renderer);
 
@@ -206,16 +242,20 @@ namespace SpaceEngineers
                     {
                         if (!(steamService.IsActive && steamService.OwnsGame))
                         {
-                            MessageBoxWrapper("Steam is not running!", "Please run this game from Steam." + Environment.NewLine + "(restart Steam if already running)");
-                            return;
+                            if (MyFakes.ENABLE_RUN_WITHOUT_STEAM == false)
+                            {
+                                MessageBoxWrapper("Steam is not running!", "Please run this game from Steam." + Environment.NewLine + "(restart Steam if already running)");
+                                return;
+                            }
                         }
                     }
                     else
                     {
-                        if (!(steamService.IsActive && steamService.OwnsGame))
-                        {
-                            MessageBoxWrapper("Steam is not running!", "Game might be unstable when run without Steam!");
-                        }
+                        // At the moment in some cases we can't really distinguish if Steam is
+                        // active but the user doesn't own the game
+                        MessageBoxWrapper("Steam is not running!", "Game might be unstable when run without Steam\n"
+                            + "or when the game is not present in the user's library!\n"
+                            + "FOR DEBUG: Set MyFakes.ENABLE_RUN_WITHOUT_STEAM to true");
                     }
                 }
 
@@ -223,14 +263,12 @@ namespace SpaceEngineers
 
                 VRageRender.MyRenderProxy.GetRenderProfiler().StartProfilingBlock("new MySandboxGame()");
 
-                SpaceEngineersGame.SetupPerGameSettings();
-
                 VRageGameServices services = new VRageGameServices(steamService);
 
                 if (!MySandboxGame.IsDedicated)
                     MyFileSystem.InitUserSpecific(steamService.UserId.ToString());
 
-                using (MySandboxGame game = new MySandboxGame(services, args))
+                using (SpaceEngineersGame game = new SpaceEngineersGame(services, args))
                 {
                     VRageRender.MyRenderProxy.GetRenderProfiler().EndProfilingBlock();
                     VRageRender.MyRenderProxy.GetRenderProfiler().EndProfilingBlock();

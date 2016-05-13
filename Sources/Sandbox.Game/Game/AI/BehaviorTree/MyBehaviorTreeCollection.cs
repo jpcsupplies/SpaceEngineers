@@ -1,5 +1,4 @@
-﻿using Sandbox.Common.ObjectBuilders.AI;
-using Sandbox.Common.ObjectBuilders.Definitions;
+﻿using Sandbox.Common.ObjectBuilders.Definitions;
 using Sandbox.Definitions;
 using Sandbox.Engine.Utils;
 using Sandbox.Game.Gui;
@@ -11,6 +10,9 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using VRage.FileSystem;
+using VRage.Game;
+using VRage.Game.Definitions;
+using VRage.Game.SessionComponents;
 using VRage.Library.Utils;
 using VRage.ObjectBuilders;
 using VRage.Utils;
@@ -34,11 +36,15 @@ namespace Sandbox.Game.AI.BehaviorTree
 
         private void SendSelectedTreeForDebug(MyBehaviorTree behaviorTree)
         {
+            if (MySessionComponentExtDebug.Static == null)
+                return;
             DebugSelectedTreeHashSent = true;
             DebugCurrentBehaviorTree = behaviorTree.BehaviorTreeName;
-            var msg = new MyCopyDataStructures.SelectedTreeMsg() { BehaviorTreeName = behaviorTree.BehaviorTreeName };
-            WinApi.SendMessage<MyCopyDataStructures.SelectedTreeMsg>(ref msg, m_toolWindowHandle);
-           // WinApi.PostMessage(m_toolWindowHandle, MyWMCodes.BEHAVIOR_TOOL_SELECT_TREE, new IntPtr(behaviorTree.BehaviorTreeName.GetHashCode()), IntPtr.Zero);
+            var msg = new MyExternalDebugStructures.SelectedTreeMsg()
+            {
+                BehaviorTreeName = behaviorTree.BehaviorTreeName
+            };
+            MySessionComponentExtDebug.Static.SendMessageToClients(msg);
         }
 
         private void SendDataToTool(IMyBot bot, MyPerTreeBotMemory botTreeMemory)
@@ -154,6 +160,13 @@ namespace Sandbox.Game.AI.BehaviorTree
                     var bot = data.Bot;
                     if (bot.IsValidForUpdate && ++data.UpdateCounter > UPDATE_COUNTER)
                     {
+                        if ( MyFakes.DEBUG_BEHAVIOR_TREE )
+                        {
+                            if (!MyFakes.DEBUG_BEHAVIOR_TREE_ONE_STEP)
+                                continue;
+                            MyFakes.DEBUG_BEHAVIOR_TREE_ONE_STEP = false;
+                        }
+
                         data.UpdateCounter = 0;
                         bot.BotMemory.PreTickClear();
                         behaviorTree.Tick(bot);

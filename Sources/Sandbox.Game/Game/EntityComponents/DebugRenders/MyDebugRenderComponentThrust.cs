@@ -5,9 +5,8 @@ using System.Text;
 using VRageMath;
 using VRageRender;
 using Sandbox.Game.World;
-using Sandbox.Graphics.TransparentGeometry;
 using Sandbox.Game.Entities;
-using Sandbox.Common.Components;
+
 using Sandbox.Common.ObjectBuilders;
 using VRage.Utils;
 using Sandbox.Engine.Utils;

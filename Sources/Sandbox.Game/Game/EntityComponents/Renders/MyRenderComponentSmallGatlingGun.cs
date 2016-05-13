@@ -4,8 +4,8 @@ using System.Linq;
 using System.Text;
 using Sandbox.Game.Weapons;
 using VRageMath;
-using Sandbox.Common.Components;
-using VRage.Components;
+
+using VRage.Game.Components;
 
 namespace Sandbox.Game.Components
 {

@@ -17,6 +17,8 @@ using Sandbox.Game.Gui;
 using Sandbox.Engine.Utils;
 using System.IO;
 using VRage.Library.Collections;
+using System.Threading;
+using VRage.Game.Entity;
 
 namespace Sandbox.Game.Multiplayer
 {
@@ -29,9 +31,16 @@ namespace Sandbox.Game.Multiplayer
 
         internal readonly MyClientCollection Clients;
 
-        private readonly List<ulong> m_recipients = new List<ulong>();
+        private readonly List<ulong> m_recipientsStorage = new List<ulong>();
 
-        internal DateTime LastMessageFromServer { get; private set; }
+        private List<ulong> m_recipients
+        {
+            get
+            {
+                Debug.Assert(Thread.CurrentThread == MySandboxGame.Static.UpdateThread, "Accessing recipients from wrong thread!");
+                return m_recipientsStorage;
+            }
+        }
 
         internal bool AutoRegisterGameEvents { get; set; }
 
@@ -58,7 +67,8 @@ namespace Sandbox.Game.Multiplayer
 
         void multiplayer_ClientJoined(ulong steamUserId)
         {
-            Clients.AddClient(steamUserId);
+            if(!Clients.HasClient(steamUserId))
+                Clients.AddClient(steamUserId);
         }
 
         void multiplayer_ClientLeft(ulong steamUserId, ChatMemberStateChangeEnum leaveReason)
@@ -98,24 +108,12 @@ namespace Sandbox.Game.Multiplayer
                     success = Sync.ServerId == target || Sync.IsServer;
                     break;
 
-                case MyMessagePermissions.ToServer | MyMessagePermissions.FromServer | MyMessagePermissions.ToSelf:
-                    success = Sync.ServerId == target || Sync.IsServer || Sync.MyId == target;
-                    break;
-
                 case MyMessagePermissions.FromServer:
                     success = Sync.IsServer;
                     break;
 
                 case MyMessagePermissions.ToServer:
                     success = Sync.ServerId == target;
-                    break;
-
-                case MyMessagePermissions.ToServer | MyMessagePermissions.ToSelf:
-                    success = Sync.ServerId == target || Sync.MyId == target;
-                    break;
-
-                case MyMessagePermissions.ToSelf:
-                    success = Sync.MyId == target;
                     break;
 
                 default:
@@ -138,24 +136,12 @@ namespace Sandbox.Game.Multiplayer
                     success = Sync.ServerId == sender || Sync.IsServer;
                     break;
 
-                case MyMessagePermissions.ToServer | MyMessagePermissions.FromServer | MyMessagePermissions.ToSelf:
-                    success = Sync.ServerId == sender || Sync.IsServer || Sync.MyId == sender;
-                    break;
-
                 case MyMessagePermissions.FromServer:
                     success = Sync.ServerId == sender;
                     break;
 
                 case MyMessagePermissions.ToServer:
                     success = Sync.IsServer;
-                    break;
-
-                case MyMessagePermissions.ToServer | MyMessagePermissions.ToSelf:
-                    success = Sync.IsServer || Sync.MyId == sender;
-                    break;
-
-                case MyMessagePermissions.ToSelf:
-                    success = Sync.MyId == sender;
                     break;
 
                 default:
@@ -233,8 +219,6 @@ namespace Sandbox.Game.Multiplayer
         public void SendMessage<TMsg>(ref TMsg msg, ulong sendTo, MyTransportMessageEnum messageType = MyTransportMessageEnum.Request)
             where TMsg : struct
         {
-            System.Diagnostics.Debug.Assert(!MyEntities.CloseAllowed || (MyEntities.CloseAllowed && Sync.IsServer), "Messages can be sent only when entities are not unloading!");
-
             if (sendTo == Sync.MyId)
             {
                 m_recipients.Clear();
@@ -309,7 +293,10 @@ namespace Sandbox.Game.Multiplayer
                     }
                 }
             }
-            TransportLayer.SendMessage(ref msg, m_recipients, messageType, includeSelf);
+            if (TransportLayer != null)
+            {
+                TransportLayer.SendMessage(ref msg, m_recipients, messageType, includeSelf);
+            }
         }
     }
 }

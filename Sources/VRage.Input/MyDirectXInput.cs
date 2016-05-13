@@ -1,4 +1,5 @@
-﻿#region Using
+﻿#if !UNSHARPER
+#region Using
 
 using SharpDX.DirectInput;
 using System;
@@ -37,7 +38,7 @@ namespace VRage.Input
         }
     }
 
-    public class MyDirectXInput : IMyInput
+    public partial class MyDirectXInput : IMyInput
     {
         [DllImport("user32.dll")]
         static extern IntPtr GetForegroundWindow();
@@ -50,6 +51,9 @@ namespace VRage.Input
         public bool IsNumLock { get { return (((ushort)GetKeyState(0x90)) & 0xffff) != 0; } }
         public bool IsScrollLock { get { return (((ushort)GetKeyState(0x91)) & 0xffff) != 0; } }
 
+        //Added by Gregory in order to Override some update properties fot testing Tool
+        public bool OverrideUpdate = false;
+
         Vector2 m_absoluteMousePosition;
 
         //  State Variables
@@ -57,8 +61,16 @@ namespace VRage.Input
         JoystickState m_previousJoystickState;
         MyGuiLocalizedKeyboardState m_keyboardState;
         MyMouseState m_actualMouseState;
+        public MyMouseState ActualMouseState
+        {
+            get {return m_actualMouseState;}
+        }
         MyMouseState m_actualMouseStateRaw;
         JoystickState m_actualJoystickState;
+        public JoystickState ActualJoystickState
+        {
+            get { return m_actualJoystickState; }
+        }
         bool m_joystickXAxisSupported;
         bool m_joystickYAxisSupported;
         bool m_joystickZAxisSupported;
@@ -145,6 +157,12 @@ namespace VRage.Input
             m_gameControlsSnapshot = new Dictionary<MyStringId, MyControl>(MyStringId.Comparer);
             CloneControls(m_defaultGameControlsList, m_gameControlsList);
             ENABLE_DEVELOPER_KEYS = enableDevKeys;
+        }
+
+        public void AddDefaultControl(MyStringId stringId, MyControl control)
+        {
+            m_gameControlsList[stringId] = control;
+            m_defaultGameControlsList[stringId] = control;
         }
 
         public void LoadData(SerializableDictionary<string, object> controlsGeneral, SerializableDictionary<string, object> controlsButtons)
@@ -353,7 +371,6 @@ namespace VRage.Input
             //MyRawInput.RegisterDevice(SharpDX.Multimedia.UsagePage.Generic, SharpDX.Multimedia.UsageId.GenericMouse, SharpDX.RawInput.DeviceFlags.None, MySandboxGame.Static.WindowHandle);
             //MyRawInput.MouseInput += MyRawInput_MouseInput;
             MyDirectInput.Initialize(windowHandle);
-            MyWindowsMouse.SetMouseCapture(windowHandle);
 
             InitDevicePluginHandlerCallBack();
 
@@ -531,8 +548,21 @@ namespace VRage.Input
             m_actualMouseStateRaw.ClearPosition();
         }
 
+        public void UpdateStatesFromPlayback(MyKeyboardState currentKeyboard, MyKeyboardState previousKeyboard, MyMouseState currentMouse, MyMouseState previousMouse, JoystickState currentJoystick, JoystickState previousJoystick, int x, int y)
+        {
+            m_keyboardState.UpdateStatesFromSnapshot(currentKeyboard,previousKeyboard);
+            m_previousMouseState = previousMouse;
+            m_actualMouseState = currentMouse;
+            m_actualJoystickState = currentJoystick;
+            m_previousJoystickState = previousJoystick;
+            m_absoluteMousePosition = new Vector2(x, y);
+            if (m_gameWasFocused)
+            {
+                MyWindowsMouse.SetPosition(x, y);
+            }
+        }
 
-        void UpdateStates()
+        public void UpdateStates()
         {
             ProfilerShort.Begin("MyDirectXInput::UpdateStates");
             m_previousMouseState = m_actualMouseState;
@@ -615,7 +645,8 @@ namespace VRage.Input
 
             m_gameWasFocused = gameFocused;
 
-            if (!gameFocused)
+
+            if (!gameFocused && !OverrideUpdate)
             {
                 ClearStates();
                 ProfilerShort.End();
@@ -626,8 +657,12 @@ namespace VRage.Input
             //if (m_recordingBeingPlayed != null)
             //    UpdateStatesFromRecording();
             //else
-            UpdateStates();
 
+            if (!OverrideUpdate)
+            {
+                UpdateStates();
+            }
+            
             //if (m_isRandomTestRun)
             //    GenerateRandomStates();
 
@@ -650,9 +685,11 @@ namespace VRage.Input
             ProfilerShort.BeginNextBlock("MyDirectXInput::Update3");
             //if (m_isRecordingInput)
             //  RecordInputSnapshot();
-
             m_bufferedInputSource.SwapBufferedTextInput(ref m_currentTextInput);
             ProfilerShort.End();
+
+            
+
             return ret;
         }
 
@@ -2416,3 +2453,4 @@ namespace VRage.Input
         }
     }
 }
+#endif

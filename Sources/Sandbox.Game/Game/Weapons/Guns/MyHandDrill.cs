@@ -13,7 +13,6 @@ using Sandbox.Game.Entities.Cube;
 using Sandbox.Game.GameSystems.Electricity;
 using Sandbox.Game.Gui;
 using Sandbox.Game.Weapons.Guns;
-using Sandbox.Graphics.TransparentGeometry.Particles;
 using Sandbox.ModAPI.Interfaces;
 using System;
 using System.Diagnostics;
@@ -23,16 +22,18 @@ using VRage.ObjectBuilders;
 using VRage.ModAPI;
 using VRage.Utils;
 using Sandbox.Engine.Networking;
+using VRage.Game.Components;
+using VRage.Game.Entity;
+using VRage.Game;
+using VRage.Game.ModAPI.Interfaces;
 
 #endregion
 
 namespace Sandbox.Game.Weapons
 {
     [MyEntityType(typeof(MyObjectBuilder_HandDrill))]
-    class MyHandDrill : MyEntity, IMyHandheldGunObject<MyToolBase>
+    class MyHandDrill : MyEntity, IMyHandheldGunObject<MyToolBase>, IMyGunBaseUser
     {
-        public readonly static MyDrillBase.Sounds m_sounds;
-
 	    private const float SPIKE_THRUST_DISTANCE_HALF = 0.2f;
         private const float SPIKE_THRUST_PERIOD_IN_SECONDS = 0.05f;
         private const float SPIKE_SLOWDOWN_TIME_IN_SECONDS = 0.5f;
@@ -52,6 +53,9 @@ namespace Sandbox.Game.Weapons
         private int m_spikeLastUpdateTime;
 
         MyOreDetectorComponent m_oreDetectorBase = new MyOreDetectorComponent();
+
+
+        float m_speedMultiplier=1f;
 
 		private MyResourceSinkComponent m_sinkComp;
 		public MyResourceSinkComponent SinkComp
@@ -84,6 +88,9 @@ namespace Sandbox.Game.Weapons
         {
             get { return m_drillBase.IsDrilling; }
         }
+
+        public bool ForceAnimationInsteadOfIK { get { return false; } }
+
         public bool IsBlocking
         {
             get { return false; }
@@ -95,43 +102,52 @@ namespace Sandbox.Game.Weapons
         
         static MyHandDrill()
         {
-            m_sounds = new MyDrillBase.Sounds()
-            {
-                IdleLoop = new MySoundPair("ToolPlayDrillIdle"),
-                MetalLoop = new MySoundPair("ToolPlayDrillMetal"),
-                RockLoop = new MySoundPair("ToolPlayDrillRock")
-            };
+            
         }
 
-	    readonly MyPhysicalItemDefinition m_physItemDef;
+	    MyPhysicalItemDefinition m_physItemDef;
+        MyDefinitionId m_physicalItemId;
 
         public MyHandDrill()
         {
             NeedsUpdate = MyEntityUpdateEnum.EACH_FRAME;
-
-            PhysicalObject = MyObjectBuilderSerializer.CreateNewObject<MyObjectBuilder_PhysicalGunObject>("HandDrillItem");
-            m_physItemDef = MyDefinitionManager.Static.GetPhysicalItemDefinition(new MyDefinitionId(typeof(MyObjectBuilder_PhysicalGunObject), "HandDrillItem"));
-            (PositionComp as MyPositionComponent).WorldPositionChanged = WorldPositionChanged;
         }
 
         public override void Init(MyObjectBuilder_EntityBase objectBuilder)
         {
+            if (objectBuilder.SubtypeName != null && objectBuilder.SubtypeName.Length > 0)
+            {
+                PhysicalObject = MyObjectBuilderSerializer.CreateNewObject<MyObjectBuilder_PhysicalGunObject>(objectBuilder.SubtypeName + "Item");
+                m_physItemDef = MyDefinitionManager.Static.GetPhysicalItemDefinition(new MyDefinitionId(typeof(MyObjectBuilder_PhysicalGunObject), objectBuilder.SubtypeName + "Item"));
+            }
+            else
+            {
+                PhysicalObject = MyObjectBuilderSerializer.CreateNewObject<MyObjectBuilder_PhysicalGunObject>("HandDrillItem");
+                m_physItemDef = MyDefinitionManager.Static.GetPhysicalItemDefinition(new MyDefinitionId(typeof(MyObjectBuilder_PhysicalGunObject), "HandDrillItem"));
+            }
+
+            (PositionComp as MyPositionComponent).WorldPositionChanged = WorldPositionChanged;
+
+            m_handItemDefId = objectBuilder.GetId();
+
+            var definition = MyDefinitionManager.Static.TryGetHandItemDefinition(ref m_handItemDefId);
+            m_speedMultiplier = 1f/(definition as MyHandDrillDefinition).SpeedMultiplier;
             m_drillBase = new MyDrillBase(this,
                 MyDrillConstants.DRILL_HAND_DUST_EFFECT,
                 MyDrillConstants.DRILL_HAND_DUST_STONES_EFFECT,
                 MyDrillConstants.DRILL_HAND_SPARKS_EFFECT,
                 new MyDrillSensorRayCast(-0.5f, 1.8f),
-                new MyDrillCutOut(0.5f, 0.7f),
+                new MyDrillCutOut(0.5f, 0.35f*(definition as MyHandDrillDefinition).DistanceMultiplier),
                 SPIKE_SLOWDOWN_TIME_IN_SECONDS,
                 floatingObjectSpawnOffset: -0.25f,
-                floatingObjectSpawnRadius: 1.4f * 0.25f,
-                sounds: m_sounds 
+                floatingObjectSpawnRadius: 1.4f * 0.25f
             );
+            m_drillBase.VoxelHarvestRatio = MyDrillConstants.VOXEL_HARVEST_RATIO * (definition as MyHandDrillDefinition).HarvestRatioMultiplier;
             AddDebugRenderComponent(new Components.MyDebugRenderCompomentDrawDrillBase(m_drillBase));
-            m_handItemDefId = objectBuilder.GetId();
             base.Init(objectBuilder);
 
-            Init(null, "Models\\Weapons\\HandDrill.mwm", null, null, null);
+            var physDefinition = MyDefinitionManager.Static.GetPhysicalItemDefinition(definition.PhysicalItemId);
+            Init(null, physDefinition.Model, null, null, null);
             Render.CastShadows = true;
             Render.NeedsResolveCastShadow = false;
 
@@ -153,12 +169,25 @@ namespace Sandbox.Game.Weapons
                 MyStringHash.GetOrCompute("Utility"), 
                 MyEnergyConstants.REQUIRED_INPUT_HAND_DRILL,
                 () => m_tryingToDrill ? SinkComp.MaxRequiredInput : 0f);
-	        SinkComp = sinkComp;
+            SinkComp = sinkComp;
+
+            foreach (ToolSound toolSound in definition.ToolSounds)
+            {
+                if (toolSound.type == null || toolSound.subtype == null || toolSound.sound == null)
+                    continue;
+                if (toolSound.type.Equals("Main"))
+                {
+                    if (toolSound.subtype.Equals("Idle"))
+                        m_drillBase.m_idleSoundLoop = new MySoundPair(toolSound.sound);
+                    if (toolSound.subtype.Equals("Soundset"))
+                        m_drillBase.m_drillMaterial = MyStringHash.GetOrCompute(toolSound.sound);
+                }
+            }
         }
 
         public bool CanShoot(MyShootActionEnum action, long shooter, out MyGunStatusEnum status)
         {
-            if ((MySandboxGame.TotalGamePlayTimeInMilliseconds - m_lastTimeDrilled) < MyDrillConstants.DRILL_UPDATE_INTERVAL_IN_MILISECONDS)
+            if ((MySandboxGame.TotalGamePlayTimeInMilliseconds - m_lastTimeDrilled) < MyDrillConstants.DRILL_UPDATE_INTERVAL_IN_MILISECONDS * m_speedMultiplier)
             {
                 status = MyGunStatusEnum.Cooldown;
                 return false;
@@ -175,15 +204,16 @@ namespace Sandbox.Game.Weapons
             return true;
         }
 
-        public void Shoot(MyShootActionEnum action, Vector3 direction, string gunAction)
+        public void Shoot(MyShootActionEnum action, Vector3 direction, Vector3D? overrideWeaponPos, string gunAction)
         {
-            MyAnalyticsHelper.ReportActivityStartIf(!IsShooting, this.Owner, "Drilling", "Character", "HandTools", "HandDrill", false);
+            MyAnalyticsHelper.ReportActivityStartIf(!IsShooting, this.Owner, "Drilling", "Character", "HandTools", "HandDrill", true);
 
             DoDrillAction(collectOre: action == MyShootActionEnum.PrimaryAction);
         }
 
         public void EndShoot(MyShootActionEnum action)
         {
+            MyAnalyticsHelper.ReportActivityEnd(this.Owner, "Drilling");
             m_drillBase.StopDrill();
             m_tryingToDrill = false;
 			SinkComp.Update();
@@ -198,7 +228,7 @@ namespace Sandbox.Game.Weapons
                 return false;
 
             m_lastTimeDrilled = MySandboxGame.TotalGamePlayTimeInMilliseconds;
-            m_drillBase.Drill(collectOre);
+            m_drillBase.Drill(collectOre, assignDamagedMaterial: true);
             m_spikeLastUpdateTime = MySandboxGame.TotalGamePlayTimeInMilliseconds;
 
             return true;
@@ -214,6 +244,10 @@ namespace Sandbox.Game.Weapons
             if (m_drillBase.IsDrilling || m_drillBase.AnimationMaxSpeedRatio > 0f)
             {
                 float timeDelta = (MySandboxGame.TotalGamePlayTimeInMilliseconds - m_spikeLastUpdateTime) / 1000f;
+
+                if (m_objectInDrillingRange && Owner != null && Owner.ControllerInfo.IsLocallyControlled() && (Owner.IsInFirstPersonView || Owner.ForceFirstPersonCamera))
+                    m_drillBase.PerformCameraShake();
+
 #if ROTATE_DRILL_SPIKE
                 m_spikeRotationAngle += timeDelta * m_drillBase.AnimationMaxSpeedRatio * SPIKE_MAX_ROTATION_SPEED;
                 if (m_spikeRotationAngle > MathHelper.TwoPi) m_spikeRotationAngle -= MathHelper.TwoPi;
@@ -237,8 +271,9 @@ namespace Sandbox.Game.Weapons
         private void CreateCollisionSparks()
         {
             float distSq = MyDrillConstants.DRILL_HAND_REAL_LENGTH * MyDrillConstants.DRILL_HAND_REAL_LENGTH;
-            var origin = m_drillBase.Sensor.Center * 2 - m_drillBase.Sensor.FrontPoint;
+            var origin = m_drillBase.Sensor.Center;
 
+            m_objectInDrillingRange = false;
             foreach (var entry in m_drillBase.Sensor.EntitiesInRange)
             {
                 const float sparksMoveDist = 0.1f;
@@ -246,6 +281,7 @@ namespace Sandbox.Game.Weapons
                 var pt = entry.Value.DetectionPoint;
                 if (Vector3.DistanceSquared(pt, origin) < distSq)
                 {
+                    m_objectInDrillingRange = true;
                     if (Vector3.DistanceSquared(m_lastSparksPosition, pt) > sparksMoveDist * sparksMoveDist)
                     {
                         m_lastSparksPosition = pt;
@@ -254,14 +290,6 @@ namespace Sandbox.Game.Weapons
                         {
                             effect.WorldMatrix = MatrixD.CreateWorld(pt, PositionComp.WorldMatrix.Forward, PositionComp.WorldMatrix.Up);
                             effect.UserScale = 0.3f;
-                        }
-                        if (m_drillBase.IsDrilling)
-                        {
-                            // sets sound to play while drilling
-                            if (entry.Value.Entity is MyCubeGrid)
-                                m_drillBase.CurrentLoopCueEnum = m_sounds.MetalLoop;
-                            else if (entry.Value.Entity is MyVoxelMap)
-                                m_drillBase.CurrentLoopCueEnum = m_sounds.RockLoop;
                         }
                         else
                         {
@@ -299,13 +327,17 @@ namespace Sandbox.Game.Weapons
 
         public void OnControlReleased()
         {
-            m_drillBase.IgnoredEntities.Remove(m_owner);
-            m_drillBase.StopDrill();
-            m_tryingToDrill = false;
-			SinkComp.Update();
-            m_drillBase.OutputInventory = null;
+            if (m_drillBase != null)
+            {
+                m_drillBase.IgnoredEntities.Remove(m_owner);
+                m_drillBase.StopDrill();
 
-            if (m_owner.ControllerInfo.IsLocallyControlled())
+                m_tryingToDrill = false;
+                SinkComp.Update();
+                m_drillBase.OutputInventory = null;
+            }
+
+            if (m_owner != null && m_owner.ControllerInfo != null && m_owner.ControllerInfo.IsLocallyControlled())
             {
                 m_oreDetectorBase.Clear();
             }
@@ -315,10 +347,11 @@ namespace Sandbox.Game.Weapons
 
         public void DrawHud(IMyCameraController camera, long playerId)
         {
-            MyHud.Crosshair.Position = MyHudCrosshair.ScreenCenter;
+            MyHud.Crosshair.Recenter();
         }
 
         private bool m_tryingToDrill;
+        private bool m_objectInDrillingRange;
 
         public MyDefinitionId DefinitionId
         {
@@ -334,7 +367,7 @@ namespace Sandbox.Game.Weapons
 
         bool OnCheckControl()
         {
-            return Sandbox.Game.World.MySession.ControlledEntity != null && ((MyEntity)Sandbox.Game.World.MySession.ControlledEntity == Owner);
+            return Sandbox.Game.World.MySession.Static.ControlledEntity != null && ((MyEntity)Sandbox.Game.World.MySession.Static.ControlledEntity == Owner);
         }
 
         public Vector3 DirectionToTarget(Vector3D target)
@@ -364,6 +397,75 @@ namespace Sandbox.Game.Weapons
         public MyPhysicalItemDefinition PhysicalItemDefinition
         {
             get { return m_physItemDef; }
+        }
+
+        public int CurrentAmmunition { set; get; }
+        public int CurrentMagazineAmmunition { set; get; }
+
+        public override MyObjectBuilder_EntityBase GetObjectBuilder(bool copy = false)
+        {
+            MyObjectBuilder_EntityBase ob = base.GetObjectBuilder(copy);
+
+            ob.SubtypeName = m_handItemDefId.SubtypeName;
+            return ob;
+        }
+
+        MyEntity IMyGunBaseUser.IgnoreEntity
+        {
+            get { return this; }
+        }
+
+        MyEntity IMyGunBaseUser.Weapon
+        {
+            get { return this; }
+        }
+
+        MyEntity IMyGunBaseUser.Owner
+        {
+            get { return m_owner; }
+        }
+
+        IMyMissileGunObject IMyGunBaseUser.Launcher
+        {
+            get { return null; }
+        }
+
+        MyInventory IMyGunBaseUser.AmmoInventory
+        {
+            get
+            {
+                if (m_owner != null)
+                {
+                    return m_owner.GetInventory() as MyInventory;
+                }
+
+                return null;
+            }
+        }
+
+        MyDefinitionId IMyGunBaseUser.PhysicalItemId
+        {
+            get { return new MyDefinitionId(); }
+        }
+
+        MyInventory IMyGunBaseUser.WeaponInventory
+        {
+            get { return null; }
+        }
+
+        long IMyGunBaseUser.OwnerId
+        {
+            get
+            {
+                if (m_owner != null)
+                    return m_owner.ControllerInfo.ControllingIdentityId;
+                return 0;
+            }
+        }
+
+        string IMyGunBaseUser.ConstraintDisplayName
+        {
+            get { return null; }
         }
     }
 }

@@ -26,11 +26,13 @@ using Rectangle = VRageMath.Rectangle;
 using RectangleF = VRageMath.RectangleF;
 using Vector2 = VRageMath.Vector2;
 using Vector3 = VRageMath.Vector3;
+using BoundingFrustrum = VRageMath.BoundingFrustum;
 
 #endregion
 
 namespace VRageRender
 {
+    [Unsharper.UnsharperStaticInitializersPriority(1)]
     public static class MyRenderProxy
     {
         public static bool DRAW_RENDER_STATS = false;
@@ -46,6 +48,8 @@ namespace VRageRender
         public static MyRenderThread RenderThread { get; private set; }
 
         public static MyRenderSettings Settings = new MyRenderSettings();
+
+        public static MyRenderDebugOverrides DebugOverrides = new MyRenderDebugOverrides();
 
         public static List<MyBillboard> BillboardsRead { get { return m_render.SharedData.Billboards.Read.Billboards; } }
         public static List<MyBillboard> BillboardsWrite { get { return m_render.SharedData.Billboards.Write.Billboards; } }
@@ -80,6 +84,8 @@ namespace VRageRender
 
         #region Properties
 
+        public static MyLog Log { get { return m_render.Log; } }
+
         public static bool IsInstantiated
         {
             get { return m_render != null;  }
@@ -102,7 +108,8 @@ namespace VRageRender
             // It might be an error, but since device itself is not disposed multiple times, I guess it can be ignored for now.
             //Debug.Assert(RenderThread != null, "Render thread is not set, it should be!");
 
-            m_render.DisposeDevice();
+            if (m_render != null)
+                m_render.DisposeDevice();
             RenderThread = null;
         }
 
@@ -170,7 +177,7 @@ namespace VRageRender
             Debug.Assert(RenderThread.SystemThread == Thread.CurrentThread, "Render accessed from non-render thread");
         }
 
-        private static void EnqueueMessage(IMyRenderMessage message)
+        private static void EnqueueMessage(MyRenderMessageBase message)
         {
             Debug.Assert(message != null);
 
@@ -224,7 +231,13 @@ namespace VRageRender
         private static uint GetMessageId() {
             using (m_messageIdLock.Acquire())
             {
+#if BLIT
+                uint v = m_render.GlobalMessageCounter;
+                m_render.GlobalMessageCounter = m_render.GlobalMessageCounter + 1;
+                return v;
+#else
                 return m_render.GlobalMessageCounter++;
+#endif
             }
         }
 
@@ -278,13 +291,17 @@ namespace VRageRender
             m_render.RootDirectoryDebug = rootDirectoryDebug;
         }
 
+        public static void GenerateShaderCache(bool clean, OnShaderCacheProgressDelegate onShaderCacheProgress)
+        {
+            m_render.GenerateShaderCache(clean, onShaderCacheProgress);
+        }
         #endregion
 
         #region Sprites
 
-        public static void DrawSprite(string texture, ref RectangleF destination, bool scaleDestination, ref Rectangle? sourceRectangle, Color color, float rotation, Vector2 rightVector, ref Vector2 origin, SpriteEffects effects, float depth)
+        public static void DrawSprite(string texture, ref RectangleF destination, bool scaleDestination, ref Rectangle? sourceRectangle, Color color, float rotation, Vector2 rightVector, ref Vector2 origin, SpriteEffects effects, float depth, bool waitTillLoaded = true)
         {
-            Debug.Assert(!string.IsNullOrEmpty(texture) && (texture.EndsWith(".jpg") || texture.EndsWith(".dds") || texture.EndsWith(".png")), "Unsupported sprite texture: " + texture);
+            Debug.Assert(!string.IsNullOrEmpty(texture) && (texture.EndsWith(".jpg") || texture.EndsWith(".dds") || texture.EndsWith(".png")), "Unsupported sprite texture! ");
 
             var message = MessagePool.Get<MyRenderMessageDrawSprite>(MyRenderMessageEnum.DrawSprite);
 
@@ -298,14 +315,15 @@ namespace VRageRender
             message.Effects = effects;
             message.Origin = origin;
             message.ScaleDestination = scaleDestination;
+            message.WaitTillLoaded = waitTillLoaded;
 
             EnqueueMessage(message);
         }
 
         // RotSpeed in rad/s
-        public static void DrawSprite(string texture, Vector2 normalizedCoord, Vector2 normalizedSize, Color color, MyGuiDrawAlignEnum drawAlign, float rotation, Vector2 rightVector, float scale, Vector2? originNormalized, float rotSpeed = 0)
+        public static void DrawSprite(string texture, Vector2 normalizedCoord, Vector2 normalizedSize, Color color, MyGuiDrawAlignEnum drawAlign, float rotation, Vector2 rightVector, float scale, Vector2? originNormalized, float rotSpeed = 0, bool waitTillLoaded = true)
         {
-            Debug.Assert(!string.IsNullOrEmpty(texture) && (texture.EndsWith(".jpg") || texture.EndsWith(".dds") || texture.EndsWith(".png")), "Unsupported sprite texture: " + texture);
+            Debug.Assert(!string.IsNullOrEmpty(texture) && (texture.EndsWith(".jpg") || texture.EndsWith(".dds") || texture.EndsWith(".png")), "Unsupported sprite texture!");
 
             var message = MessagePool.Get<MyRenderMessageDrawSpriteNormalized>(MyRenderMessageEnum.DrawSpriteNormalized);
 
@@ -319,6 +337,7 @@ namespace VRageRender
             message.Scale = scale;
             message.OriginNormalized = originNormalized;
             message.RotationSpeed = rotSpeed;
+            message.WaitTillLoaded = waitTillLoaded;
 
             EnqueueMessage(message);
         }
@@ -413,6 +432,90 @@ namespace VRageRender
 
         #region Render objects
 
+		public static uint CreateRenderEntityCloudLayer(
+			string debugName,
+			string model,
+            List<string> textures,
+			Vector3D centerPoint,
+			double altitude,
+			double minScaledAltitude,
+			bool scalingEnabled,
+			double fadeOutRelativeAltitudeStart,
+			double fadeOutRelativeAltitudeEnd,
+			float applyFogRelativeDistance,
+			double maxPlanetHillRadius,
+			MyMeshDrawTechnique technique,
+			RenderFlags flags,
+			CullingOptions cullingOptions,
+			Vector3D rotationAxis,
+			float angularVelocity,
+			float initialRotation
+			)
+		{
+			var message = MessagePool.Get<MyRenderMessageCreateRenderEntityClouds>(MyRenderMessageEnum.CreateRenderEntityClouds);
+
+			uint id = GetMessageId();
+			message.ID = id;
+			message.Model = model;
+		    message.Textures = textures;
+			message.CenterPoint = centerPoint;
+			message.Altitude = altitude;
+			message.MinScaledAltitude = minScaledAltitude;
+			message.ScalingEnabled = scalingEnabled;
+			message.DebugName = debugName;
+			message.Technique = technique;
+			message.RotationAxis = rotationAxis;
+			message.AngularVelocity = angularVelocity;
+			message.InitialRotation = initialRotation;
+			message.MaxPlanetHillRadius = maxPlanetHillRadius;
+			message.FadeOutRelativeAltitudeStart = fadeOutRelativeAltitudeStart;
+			message.FadeOutRelativeAltitudeEnd = fadeOutRelativeAltitudeEnd;
+			message.ApplyFogRelativeDistance = applyFogRelativeDistance;
+
+			EnqueueMessage(message);
+
+			UpdateRenderEntity(id, null, null);
+
+			return id;
+		}
+
+        public static uint CreateRenderEntityAtmosphere(
+          string debugName,
+          string model,
+          MatrixD worldMatrix,
+          MyMeshDrawTechnique technique,
+          RenderFlags flags,
+          CullingOptions cullingOptions,
+          float atmosphereRadius,
+          float planetRadius,
+          Vector3 atmosphereWavelengths,
+          float dithering = 0,
+          float maxViewDistance = float.MaxValue
+          )
+        {
+            var message = MessagePool.Get<MyRenderMessageCreateRenderEntityAtmosphere>(MyRenderMessageEnum.CreateRenderEntityAtmosphere);
+
+            uint id = GetMessageId();
+            message.ID = id;
+            message.DebugName = debugName;
+            message.Model = model;
+            message.WorldMatrix = worldMatrix;
+            message.Technique = technique;
+            message.Flags = flags;
+            message.CullingOptions = cullingOptions;
+            message.MaxViewDistance = maxViewDistance;
+            message.AtmosphereRadius = atmosphereRadius;
+            message.PlanetRadius = planetRadius;
+            message.AtmosphereWavelengths = atmosphereWavelengths;
+
+            EnqueueMessage(message);
+
+            Color zeroColor = Vector3.Zero;
+            UpdateRenderEntity(id, zeroColor, Vector3.Zero, dithering);
+
+            return id;
+        }
+
         public static uint CreateRenderEntity(
             string debugName,
             string model,
@@ -423,7 +526,8 @@ namespace VRageRender
             Color diffuseColor,
             Vector3 colorMaskHsv,
             float dithering = 0,
-            float maxViewDistance = float.MaxValue
+            float maxViewDistance = float.MaxValue,
+            byte depthBias = 0
             )
         {
             var message = MessagePool.Get<MyRenderMessageCreateRenderEntity>(MyRenderMessageEnum.CreateRenderEntity);
@@ -437,6 +541,7 @@ namespace VRageRender
             message.Flags = flags;
             message.CullingOptions = cullingOptions;
             message.MaxViewDistance = maxViewDistance;
+            message.DepthBias = depthBias;
 
             EnqueueMessage(message);
 
@@ -621,9 +726,7 @@ namespace VRageRender
             EnqueueMessage(message);
         }
 
-        public static void SetCameraViewMatrix(MatrixD viewMatrix, Matrix projectionMatrix, Matrix nearProjectionMatrix, float safenear, float nearFov, float fov,
-            float nearPlane, float farPlane, float nearObjectsNearPlane, float nearObjectsFarPlane,
-            Vector3D cameraPosition)
+        public static void SetCameraViewMatrix(MatrixD viewMatrix, Matrix projectionMatrix, float safenear, float fov, float nearPlane, float farPlane, float nearObjectsNearPlane, float nearObjectsFarPlane, Vector3D cameraPosition)
         {
             var message = MessagePool.Get<MyRenderMessageSetCameraViewMatrix>(MyRenderMessageEnum.SetCameraViewMatrix);
 
@@ -631,9 +734,7 @@ namespace VRageRender
 
             message.ViewMatrix = viewMatrix;
             message.ProjectionMatrix = projectionMatrix;
-            message.NearProjectionMatrix = nearProjectionMatrix;
             message.SafeNear = safenear;
-            message.NearFOV = nearFov;
             message.FOV = fov;
             message.NearPlane = nearPlane;
             message.FarPlane = farPlane;
@@ -684,10 +785,10 @@ namespace VRageRender
         }
 
 
-        public static void RemoveRenderObject(
-        uint id
-        )
+        public static void RemoveRenderObject(uint id)
         {
+            System.Diagnostics.Debug.Assert(id != MyRenderProxy.RENDER_ID_UNASSIGNED, "Removing unassigned id");
+
             var message = MessagePool.Get<MyRenderMessageRemoveRenderObject>(MyRenderMessageEnum.RemoveRenderObject);
 
             message.ID = id;
@@ -760,7 +861,13 @@ namespace VRageRender
             Vector3I sizeLod0,
             MyClipmapScaleEnum scaleGroup,
             Vector3D position,
-			RenderFlags additionalFlags = 0)
+            float atmosphereRadius = 0.0f,
+            float planetRadius = 0.0f,
+            bool hasAtmosphere = false,
+            Vector3? atmosphereWaveLenghts = null,
+            bool spherizeWithDistance = true,
+			RenderFlags additionalFlags = 0,
+            VRage.Voxels.MyClipmap.PruningFunc prunningFunc = null)
         {
             var message = MessagePool.Get<MyRenderMessageCreateClipmap>(MyRenderMessageEnum.CreateClipmap);
 
@@ -769,17 +876,45 @@ namespace VRageRender
             message.WorldMatrix = worldMatrix;
             message.SizeLod0 = sizeLod0;
             message.ScaleGroup = scaleGroup;
+            message.AtmosphereRadius = atmosphereRadius;
+            message.PlanetRadius = planetRadius;
+            message.HasAtmosphere = hasAtmosphere;
             message.Position = position;
+            message.AtmosphereWaveLenghts = atmosphereWaveLenghts;
+            message.SpherizeWithDistance = spherizeWithDistance;
 			message.AdditionalRenderFlags = additionalFlags;
+            message.PrunningFunc = prunningFunc;
             EnqueueMessage(message);
 
             return clipmapId;
         }
 
+        public static void UpdateMergedVoxelMesh(uint clipmapId, int lod, ulong workId, MyClipmapCellMeshMetadata metaData, List<MyClipmapCellBatch> mergedBatches)
+        {
+            var message = MessagePool.Get<MyRenderMessageUpdateMergedVoxelMesh>(MyRenderMessageEnum.UpdateMergedVoxelMesh);
+
+            Debug.Assert(message.MergedBatches.Count == 0, "Message was not properly cleared");
+
+            message.ClipmapId = clipmapId;
+            message.Lod = lod;
+            message.WorkId = workId;
+            message.Metadata = metaData;
+            message.MergedBatches.AddList(mergedBatches);
+
+            EnqueueMessage(message);
+        }
+
+        public static void ResetMergedVoxels()
+        {
+            var msg = MessagePool.Get<MyRenderMessageResetMergedVoxels>(MyRenderMessageEnum.ResetMergedVoxels);
+
+            EnqueueMessage(msg);
+        }
+
         public static void UpdateClipmapCell(
             uint clipmapId,
             ref MyClipmapCellMeshMetadata metadata,
-            List<MyClipmapCellBatch> batches)
+            ref List<MyClipmapCellBatch> batches)
         {
             var message = MessagePool.Get<MyRenderMessageUpdateClipmapCell>(MyRenderMessageEnum.UpdateClipmapCell);
 
@@ -787,7 +922,7 @@ namespace VRageRender
 
             message.ClipmapId = clipmapId;
             message.Metadata = metadata;
-            message.Batches.AddList(batches);
+            MyUtils.Swap(ref message.Batches, ref batches);
 
             EnqueueMessage(message);
         }
@@ -923,7 +1058,10 @@ namespace VRageRender
           Color? diffuseColor,
           float? specularPower,
           float? specularIntensity,
-          float? emissivity
+          float? emissivity,
+          Color? outlineColor = null,
+          float thickness = -1,
+          ulong pulseTimeInFrames = 0
           )
         {
             if (id == MyRenderProxy.RENDER_ID_UNASSIGNED)
@@ -947,6 +1085,32 @@ namespace VRageRender
             message.SpecularIntensity = specularIntensity;
             message.SpecularPower = specularPower;
             message.Emissivity = emissivity;
+            message.OutlineColor = outlineColor;
+            message.OutlineThickness = thickness;
+            message.PulseTimeInFrames = pulseTimeInFrames;
+
+            EnqueueMessage(message);
+        }
+
+        /// <param name="thickness">Zero or negative to remove highlight</param>
+        public static void UpdateModelHighlight(
+            uint id,
+            int[] sectionIndices,
+            uint[] subpartIndices,
+            Color? outlineColor,
+            float thickness = -1,
+            ulong pulseTimeInFrames = 0)
+        {
+            //Debug.Assert(id != MyRenderProxy.RENDER_ID_UNASSIGNED);
+
+            var message = MessagePool.Get<MyRenderMessageUpdateModelHighlight>(MyRenderMessageEnum.UpdateModelHighlight);
+
+            message.ID = id;
+            message.SectionIndices = sectionIndices;
+            message.SubpartIndices = subpartIndices;
+            message.OutlineColor = outlineColor;
+            message.Thickness = thickness;
+            message.PulseTimeInFrames = pulseTimeInFrames;
 
             EnqueueMessage(message);
         }
@@ -1013,6 +1177,15 @@ namespace VRageRender
             EnqueueMessage(message);
         }
 
+        public static void UpdateGameplayFrame(int frame)
+        {
+            var message = MessagePool.Get<MyRenderMessageUpdateGameplayFrame>(MyRenderMessageEnum.UpdateGameplayFrame);
+
+            message.GameplayFrame = frame;
+
+            EnqueueMessage(message);
+        }
+
 
         public static void UpdateVoxelMaterialProperties(
            byte voxelMaterialIndex,
@@ -1027,6 +1200,19 @@ namespace VRageRender
             message.SpecularPower = specularPower;
 
             EnqueueMessage(message);
+        }
+
+        public static int RequestScreenData(int id, Vector2I resolution, byte[] preallocatedBuffer)
+        {
+            var message = MessagePool.Get<MyRenderMessageRequestScreenData>(MyRenderMessageEnum.RequestScreenData);
+
+            message.Id = id;
+            message.PreallocatedBuffer = preallocatedBuffer;
+            message.Resolution = resolution;
+
+            EnqueueMessage(message);
+
+            return message.Id;
         }
 
         public static void ChangeMaterialTexture(uint id,string materialName,string textureName)
@@ -1100,11 +1286,12 @@ namespace VRageRender
             EnqueueOutputMessage(message);
         }
 
+
         #endregion
 
         #region Output messages
 
-        private static void EnqueueOutputMessage(IMyRenderMessage message)
+        private static void EnqueueOutputMessage(MyRenderMessageBase message)
         {
             //System.Diagnostics.Debug.Assert(Thread.CurrentThread == AllowedThread);
 
@@ -1116,15 +1303,42 @@ namespace VRageRender
             get { return m_render.OutputQueue; }
         }
 
-        public static void RequireClipmapCell(uint clipmapId, MyCellCoord cell, bool highPriority, Func<int> priorityFunc = null, Action<Color> ddraw = null)
+        public static void MergeVoxelMeshes(uint clipmapId, ulong workId, List<MyClipmapCellMeshMetadata> lodMeshMetadata, MyCellCoord cellCoord, List<MyClipmapCellBatch> batchesToMerge)
+        {
+            var message = MessagePool.Get<MyRenderMessageMergeVoxelMeshes>(MyRenderMessageEnum.MergeVoxelMeshes);
+
+            Debug.Assert(message.BatchesToMerge.Count == 0 && message.LodMeshMetadata.Count == 0, "Message not cleared!");
+            message.BatchesToMerge.Clear();
+            message.LodMeshMetadata.Clear();
+
+            message.ClipmapId = clipmapId;
+            message.CellCoord = cellCoord;
+            message.WorkId = workId;
+            message.Priority = () => 0;
+
+            message.LodMeshMetadata.AddList(lodMeshMetadata);
+            message.BatchesToMerge.AddList(batchesToMerge);
+
+            EnqueueOutputMessage(message);
+        }
+
+        public static void CancelVoxelMeshMerge(uint clipmapId, ulong workId)
+        {
+            var message = MessagePool.Get<MyRenderMessageCancelVoxelMeshMerge>(MyRenderMessageEnum.CancelVoxelMeshMerge);
+
+            message.ClipmapId = clipmapId;
+            message.WorkId = workId;
+
+            EnqueueOutputMessage(message);
+        }
+
+        public static void RequireClipmapCell(uint clipmapId, MyCellCoord cell, Func<int> priority)
         {
             var message = MessagePool.Get<MyRenderMessageRequireClipmapCell>(MyRenderMessageEnum.RequireClipmapCell);
 
             message.ClipmapId = clipmapId;
             message.Cell = cell;
-            message.HighPriority = highPriority;
-            message.Priority = priorityFunc;
-            message.DebugDraw = ddraw;
+            message.Priority = priority;
 
             EnqueueOutputMessage(message);
         }
@@ -1135,6 +1349,17 @@ namespace VRageRender
 
             message.ClipmapId = clipmapId;
             message.Cell = cell;
+
+            EnqueueOutputMessage(message);
+        }
+
+        public static void SendReadyScreenData(int id, byte[] screenData, Vector2I resolution)
+        {
+            var message = MessagePool.Get<MyRenderMessageScreenDataReady>(MyRenderMessageEnum.ScreenDataReady);
+
+            message.Id = id;
+            message.ScreenData = screenData;
+            message.Resolution = resolution;
 
             EnqueueOutputMessage(message);
         }
@@ -1151,6 +1376,7 @@ namespace VRageRender
             Color color,
             Color specularColor,
             float falloff,
+            float glossFactor,
             float range,
             float intensity,
             bool lightOn,
@@ -1163,6 +1389,7 @@ namespace VRageRender
             Color reflectorColor,
             float reflectorRange,
             float reflectorFalloff,
+            float reflectorGlossFactor,
             string reflectorTexture,
             float shadowDistance,
             bool castShadows,
@@ -1191,6 +1418,7 @@ namespace VRageRender
                 color,
                 specularColor,
                 falloff,
+                glossFactor,
                 range,
                 intensity,
                 lightOn,
@@ -1203,6 +1431,7 @@ namespace VRageRender
                 reflectorColor,
                 reflectorRange,
                 reflectorFalloff,
+                reflectorGlossFactor,
                 reflectorTexture,
                 shadowDistance,
                 castShadows,
@@ -1227,6 +1456,7 @@ namespace VRageRender
           Color color,
           Color specularColor,
           float falloff,
+          float glossFactor,
           float range,
           float intensity,
           bool lightOn,
@@ -1239,6 +1469,7 @@ namespace VRageRender
           Color reflectorColor,
           float reflectorRange,
           float reflectorFalloff,
+          float reflectorGlossFactor,
           string reflectorTexture,
           float shadowDistance,
           bool castShadows,
@@ -1255,12 +1486,13 @@ namespace VRageRender
 
             message.ID = id;
             message.Type = type;
-            message.Position = position;
+            message.ReflectorPosition = position;
             message.ParentID = renderObjectID;
-            message.Offset = offset;
+            message.PointPositionOffset = offset;
             message.Color = color;
             message.SpecularColor = specularColor;
             message.Falloff = falloff;
+            message.GlossFactor = glossFactor;
             message.Range = range;
             message.Intensity = intensity;
             message.LightOn = lightOn;
@@ -1273,6 +1505,7 @@ namespace VRageRender
             message.ReflectorColor = reflectorColor;
             message.ReflectorRange = reflectorRange;
             message.ReflectorFalloff = reflectorFalloff;
+            message.ReflectorGlossFactor = reflectorGlossFactor;
             message.ReflectorTexture = reflectorTexture;
             message.ShadowDistance = shadowDistance;
             message.CastShadows = castShadows;
@@ -1313,10 +1546,11 @@ namespace VRageRender
         public static void UpdateRenderEnvironment(
             Vector3 sunDirection,
             Color sunColor,
-            Color sunBackColor,
+            Color[] additionalSunColors,
             Color sunSpecularColor,
             float sunIntensity,
-            float sunBackIntensity,
+            float[] additionalSunIntensities,
+            Vector2[] additionalSunDirections,
             bool sunLightOn,
             Color ambientColor,
             float ambientMultiplier,
@@ -1329,16 +1563,28 @@ namespace VRageRender
             string sunMaterial,
             float dayTime,
             bool resetEyeAdaptation = false,
-            bool enableSunBillboard = false)
+            bool enableSunBillboard = false,
+            float planetFactor = 0.0f
+)
         {
             var message = MessagePool.Get<MyRenderMessageUpdateRenderEnvironment>(MyRenderMessageEnum.UpdateRenderEnvironment);
 
             message.SunDirection = sunDirection;
             message.SunColor = sunColor;
-            message.SunBackColor = sunBackColor;
             message.SunSpecularColor = sunSpecularColor;
             message.SunIntensity = sunIntensity;
-            message.SunBackIntensity = sunBackIntensity;
+
+            Debug.Assert(additionalSunDirections == null || additionalSunDirections.Length <= message.AdditionalSunDirections.Length);
+            if (additionalSunDirections != null)
+            {
+                for (int lightIndex = 0; lightIndex < additionalSunDirections.Length; ++lightIndex)
+                {
+                    message.AdditionalSunColors[lightIndex] = additionalSunColors[lightIndex];
+                    message.AdditionalSunIntensities[lightIndex] = additionalSunIntensities[lightIndex];
+                    message.AdditionalSunDirections[lightIndex] = -additionalSunDirections[lightIndex];
+                    message.AdditionalSunCount = additionalSunDirections.Length;
+                }
+            }
             message.SunLightOn = sunLightOn;
             message.AmbientColor = ambientColor;
             message.AmbientMultiplier = ambientMultiplier;
@@ -1352,6 +1598,7 @@ namespace VRageRender
             message.DayTime = dayTime;
             message.ResetEyeAdaptation = resetEyeAdaptation;
             message.SunBillboardEnabled = enableSunBillboard;
+            message.PlanetFactor = planetFactor;
 
             EnqueueMessage(message);
         }
@@ -1543,6 +1790,42 @@ namespace VRageRender
             EnqueueMessage(message);
         }
 
+		public static void UpdateCloudLayerFogFlag(bool shouldDrawFog)
+		{
+			var message = MessagePool.Get<MyRenderMessageUpdateCloudLayerFogFlag>(MyRenderMessageEnum.UpdateCloudLayerFogFlag);
+
+			message.ShouldDrawFog = shouldDrawFog;
+
+			EnqueueMessage(message);
+		}
+
+        public static void UpdateAtmosphereSettings(uint id, MyAtmosphereSettings settings)
+        {
+            var message = MessagePool.Get<MyRenderMessageUpdateAtmosphereSettings>(MyRenderMessageEnum.UpdateAtmosphereSettings);
+
+            message.ID = id;
+            message.Settings = settings;
+
+            EnqueueMessage(message);
+        }
+
+        public static void EnableAtmosphere(bool enabled)
+        {
+            var message = MessagePool.Get<MyRenderMessageEnableAtmosphere>(MyRenderMessageEnum.EnableAtmosphere);
+
+            message.Enabled = enabled;
+
+            EnqueueMessage(message);
+        }
+
+        public static void UpdatePlanetBlurSettings(MyPlanetBlurSettings settings)
+        {
+            var message = MessagePool.Get<MyRenderMessageUpdatePlanetBlurSettings>(MyRenderMessageEnum.UpdatePlanetBlurSettings);
+
+            message.Settings = settings;
+
+            EnqueueMessage(message);
+        }
         #endregion
 
         #region Video
@@ -1570,7 +1853,12 @@ namespace VRageRender
             EnqueueMessage(message);
         }
 
-        public static void DrawVideo(uint id, Rectangle rect, Color color, MyVideoRectangleFitMode fitMode = MyVideoRectangleFitMode.None)
+        public static void DrawVideo(uint id, Rectangle rect, Color color)
+        {
+            DrawVideo(id, rect, color, MyVideoRectangleFitMode.None);
+        }
+
+        public static void DrawVideo(uint id, Rectangle rect, Color color, MyVideoRectangleFitMode fitMode)
         {
             var message = MessagePool.Get<MyRenderMessageDrawVideo>(MyRenderMessageEnum.DrawVideo);
 
@@ -1788,23 +2076,11 @@ namespace VRageRender
 
         public static void UpdateRenderQuality(
             MyRenderQualityEnum renderQuality,
-            float lodTransitionDistanceNear,
-            float lodTransitionDistanceFar,
-            float lodTransitionDistanceBackgroundStart,
-            float lodTransitionDistanceBackgroundEnd,
-            float environmentLodTransitionDistance,
-            float environmentLodTransitionDistanceBackground,
             bool enableCascadeBlending)
         {
             var message = MessagePool.Get<MyRenderMessageUpdateRenderQuality>(MyRenderMessageEnum.UpdateRenderQuality);
 
             message.RenderQuality = renderQuality;
-            message.LodTransitionDistanceNear = lodTransitionDistanceNear;
-            message.LodTransitionDistanceFar = lodTransitionDistanceFar;
-            message.LodTransitionDistanceBackgroundStart = lodTransitionDistanceBackgroundStart;
-            message.LodTransitionDistanceBackgroundEnd = lodTransitionDistanceBackgroundEnd;
-            message.EnvironmentLodTransitionDistance = environmentLodTransitionDistance;
-            message.EnvironmentLodTransitionDistanceBackground = environmentLodTransitionDistanceBackground;
             message.EnableCascadeBlending = enableCascadeBlending;
 
             EnqueueMessage(message);
@@ -1831,7 +2107,37 @@ namespace VRageRender
             message.texturesToRender = texturesToRender;
             EnqueueMessage(message);
         }
+        public static uint CreateGPUEmitter()
+        {
+            var message = MessagePool.Get<MyRenderMessageCreateGPUEmitter>(MyRenderMessageEnum.CreateGPUEmitter);
 
+            uint id = GetMessageId();
+            message.ID = id;
+
+            EnqueueMessage(message);
+
+            return id;
+        }
+        public static void UpdateGPUEmitters(MyGPUEmitter[] emitters)
+        {
+            var message = MessagePool.Get<MyRenderMessageUpdateGPUEmitters>(MyRenderMessageEnum.UpdateGPUEmitters);
+            message.Emitters = emitters;
+            EnqueueMessage(message);
+        }
+        public static void UpdateGPUEmittersPosition(uint[] GIDs, Vector3D[] positions)
+        {
+            var message = MessagePool.Get<MyRenderMessageUpdateGPUEmittersPosition>(MyRenderMessageEnum.UpdateGPUEmittersPosition);
+            message.GIDs = GIDs;
+            message.WorldPositions = positions;
+            EnqueueMessage(message);
+        }
+        public static void RemoveGPUEmitter(uint GID, bool instant)
+        {
+            var message = MessagePool.Get<MyRenderMessageRemoveGPUEmitter>(MyRenderMessageEnum.RemoveGPUEmitter);
+            message.GID = GID;
+            message.Instant = instant;
+            EnqueueMessage(message);
+        }
         public static void ScreenshotTaken(bool success, string filename, bool showNotification)
         {
             var message = MessagePool.Get<MyRenderMessageScreenshotTaken>(MyRenderMessageEnum.ScreenshotTaken);
@@ -1839,6 +2145,24 @@ namespace VRageRender
             message.Success = success;
             message.Filename = filename;
             message.ShowNotification = showNotification;
+
+            EnqueueOutputMessage(message);
+        }
+        [Conditional("DEBUG")]
+        public static void Assert(bool condition, string messageText = null)
+        {
+            if (!condition)
+            {
+                var stack = new System.Diagnostics.StackTrace(1);
+                Error(stack.ToString(), messageText);
+            }
+        }
+        public static void Error(string callstack, string messageText)
+        {
+            var message = MessagePool.Get<MyRenderMessageError>(MyRenderMessageEnum.Error);
+
+            message.Callstack = callstack;
+            message.Message = messageText;
 
             EnqueueOutputMessage(message);
         }
@@ -1978,6 +2302,19 @@ namespace VRageRender
             }
         }
 
+        public static void DebugDrawFrustrum(BoundingFrustrum frustrum, Color color, float alpha, bool depthRead, bool smooth = false)
+        {
+            var message = MessagePool.Get<MyRenderMessageDebugDrawFrustrum>(MyRenderMessageEnum.DebugDrawFrustrum);
+
+            message.Frustrum = frustrum;
+            message.Color = color;
+            message.Alpha = alpha;
+            message.DepthRead = depthRead;
+            message.Smooth = smooth;
+
+            EnqueueMessage(message);
+        }
+
         public static void DebugDrawLine3D(Vector3D pointFrom, Vector3D pointTo, Color colorFrom, Color colorTo, bool depthRead)
         {
             var message = MessagePool.Get<MyRenderMessageDebugDrawLine3D>(MyRenderMessageEnum.DebugDrawLine3D);
@@ -2063,7 +2400,7 @@ namespace VRageRender
             return new MyDebugDrawBatchAABB(PrepareDebugDrawTriangles(), ref worldMatrix, ref color, depthRead, shaded);
         }
 
-        public static void DebugDrawAABB(BoundingBoxD aabb, Color color, float alpha, float scale, bool depthRead)
+        public static void DebugDrawAABB(BoundingBoxD aabb, Color color, float alpha = 1.0f, float scale = 1.0f, bool depthRead = true, bool shaded = false)
         {
             var message = MessagePool.Get<MyRenderMessageDebugDrawAABB>(MyRenderMessageEnum.DebugDrawAABB);
 
@@ -2072,6 +2409,7 @@ namespace VRageRender
             message.Alpha = alpha;
             message.Scale = scale;
             message.DepthRead = depthRead;
+            message.Shaded = shaded;
 
             EnqueueMessage(message);
         }
@@ -2097,6 +2435,19 @@ namespace VRageRender
             obbMatrix.Translation = obb.Center;
 
             VRageRender.MyRenderProxy.DebugDrawOBB(obbMatrix, color, alpha, depthRead, smooth);
+        }
+
+        public static void DebugDraw6FaceConvex(Vector3D[] vertices, Color color, float alpha, bool depthRead, bool fill)
+        {
+            var message = MessagePool.Get<MyRenderMessageDebugDraw6FaceConvex>(MyRenderMessageEnum.DebugDraw6FaceConvex);
+
+            message.Vertices = (Vector3D[]) vertices.Clone();
+            message.Color = color;
+            message.Alpha = alpha;
+            message.DepthRead = depthRead;
+            message.Fill = fill;
+
+            EnqueueMessage(message);
         }
 
         public static void DebugDrawCone(
@@ -2147,7 +2498,7 @@ namespace VRageRender
 
             m = Matrix.CreateScale(diameter, height, diameter) * m;
             m.Translation = (vertexA + vertexB) * 0.5f;
-            m *= worldMatrix;
+            m = m * worldMatrix;
 
             DebugDrawCylinder(m, color, alpha, depthRead, smooth);
         }
@@ -2202,6 +2553,41 @@ namespace VRageRender
             EnqueueMessage(message);
         }
 
+        public static MyRenderMessageDebugDrawMesh PrepareDebugDrawMesh()
+        {
+            var message = MessagePool.Get<MyRenderMessageDebugDrawMesh>(MyRenderMessageEnum.DebugDrawMesh);
+
+            message.Vertices.Clear();
+
+            return message;
+        }
+
+        public static uint DebugDrawMesh(MyRenderMessageDebugDrawMesh message, MatrixD worldMatrix, Color color, bool depthRead, bool shaded)
+        {
+            message.ID = GetMessageId();
+
+            message.WorldMatrix = worldMatrix;
+            message.DepthRead = depthRead;
+            message.Shaded = shaded;
+            message.Color = color;
+
+            EnqueueMessage(message);
+
+            return message.ID;
+        }
+
+        public static void DebugDrawUpdateMesh(uint ID, MyRenderMessageDebugDrawMesh message, MatrixD worldMatrix, Color color, bool depthRead, bool shaded)
+        {
+            message.ID = ID;
+
+            message.WorldMatrix = worldMatrix;
+            message.DepthRead = depthRead;
+            message.Shaded = shaded;
+            message.Color = color;
+
+            EnqueueMessage(message);
+        }
+
         public static IDrawTrianglesMessage PrepareDebugDrawTriangles()
         {
             var message = MessagePool.Get<MyRenderMessageDebugDrawTriangles>(MyRenderMessageEnum.DebugDrawTriangles);
@@ -2248,6 +2634,24 @@ namespace VRageRender
             message.DepthRead = depthRead;
 
             EnqueueMessage(message);
+        }
+
+        // Wait until current frame is drawn on screen. For debug purposes only, can be useful to force drawing on screen.
+        [Conditional("DEBUG")] 
+        public static void DebugWaitForFrameFinish()
+        {
+            if (m_render != null && m_render.SharedData != null)
+            {
+                var waitHandle = new AutoResetEvent(false);
+                var message =
+                    MessagePool.Get<MyRenderMessageDebugWaitForPresent>(MyRenderMessageEnum.DebugWaitForPresent);
+                message.WaitHandle = waitHandle;
+                EnqueueMessage(message);
+                Draw3DScene();
+                m_render.SharedData.CommitBasicRenderMessages();
+                // now wait until the frame is presented
+                waitHandle.WaitOne();
+            }
         }
 
         public static void DebugCrashRenderThread()
@@ -2344,6 +2748,14 @@ namespace VRageRender
             EnqueueMessage(message);
         }
 
+        public static void SetDecalGlobals(MyDecalGlobals globals)
+        {
+            var message = MessagePool.Get<MyRenderMessageSetDecalGlobals>(MyRenderMessageEnum.SetDecalGlobals);
+            message.Globals = globals;
+
+            EnqueueMessage(message);
+        }
+
         public static void RegisterDecals(List<string> names, List<MyDecalMaterialDesc> descriptions)
         {
             var message = MessagePool.Get<MyRenderMessageRegisterScreenDecalsMaterials>(MyRenderMessageEnum.RegisterDecalsMaterials);
@@ -2356,6 +2768,22 @@ namespace VRageRender
         public static void HandleFocusMessage(MyWindowFocusMessage msg)
         {
             m_render.HandleFocusMessage(msg);
+        }
+
+        public static void UpdateMouseCapture(bool capture)
+        {
+            var message = MessagePool.Get<MyRenderMessageSetMouseCapture>(MyRenderMessageEnum.SetMouseCapture);
+
+            message.Capture = capture;
+
+            EnqueueMessage(message);
+        }
+    
+        public static void UpdateDebugOverrides()
+        {
+            var message = MessagePool.Get<MyRenderMessageUpdateDebugOverrides>(MyRenderMessageEnum.UpdateDebugOverrides);
+            message.Overrides = DebugOverrides.Clone();
+            EnqueueMessage(message);
         }
     }
 

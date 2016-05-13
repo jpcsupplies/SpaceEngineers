@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using VRage.Game;
 using VRage.Utils;
 using VRage.Voxels;
 using VRageMath;
@@ -99,6 +100,7 @@ namespace Sandbox.Game
 
     public static class MyDrillConstants
     {
+        public const float DRILL_SHIP_REAL_LENGTH = 0.98f;
         public const float DRILL_HAND_REAL_LENGTH = 0.98f;
         public const MyParticleEffectsIDEnum DRILL_HAND_DUST_EFFECT = MyParticleEffectsIDEnum.Smoke_HandDrillDust;
         public const MyParticleEffectsIDEnum DRILL_HAND_DUST_STONES_EFFECT = MyParticleEffectsIDEnum.Smoke_HandDrillDustStones;
@@ -109,12 +111,13 @@ namespace Sandbox.Game
         public const MyParticleEffectsIDEnum DRILL_SHIP_SPARKS_EFFECT = MyParticleEffectsIDEnum.Collision_Sparks;
 
         //public const float DRILL_UPDATE_INTERVAL_IN_MILISECONDS = 150;
-        public const int DRILL_UPDATE_INTERVAL_IN_FRAMES = 30;
+        public const int DRILL_UPDATE_INTERVAL_IN_FRAMES = 150;
         public const int DRILL_UPDATE_DISTRIBUTION_IN_FRAMES = 10;
-        public const float DRILL_UPDATE_INTERVAL_IN_MILISECONDS = 500;
-        public const float DRILL_RELEASE_TIME_IN_MILISECONDS = 550; // Should be higher than update interval, otherwise sound stops every once in a while.
+        public const float DRILL_UPDATE_INTERVAL_IN_MILISECONDS = 1500;
+        public const float DRILL_RELEASE_TIME_IN_MILISECONDS = 1550; // Should be higher than update interval, otherwise sound stops every once in a while.
         public const float PARTICLE_EFFECT_DURATION = 500;
-        public const float VOXEL_HARVEST_RATIO = 0.01f;
+        public const float VOXEL_HARVEST_RATIO = 0.009f;
+        public const float MAX_DROP_CUBIC_METERS = 0.150f;
 
         public const float WHOLE_VOXEL_HARVEST_VOLUME = VOXEL_HARVEST_RATIO * MyVoxelConstants.VOXEL_VOLUME_IN_METERS;
     }
@@ -152,11 +155,13 @@ namespace Sandbox.Game
 
         // prefabs that are supposed to have their explosion larger than this will have the 'huge' explosion particle effect
         public const int EXPLOSION_EFFECT_SIZE_FOR_HUGE_EXPLOSION = 300;
+
+        public const int CAMERA_SHAKE_TIME_MS = 300;
     }
 
     public static class MyEnergyConstants
     {
-        public const float BATTERY_MAX_POWER_OUTPUT = 45.0f / 50000; // MW
+        public const float BATTERY_MAX_POWER_OUTPUT = 45.0f / 5000; // MW
         public const float BATTERY_MAX_POWER_INPUT = 90.0f / 50000; // MW
         public const float BATTERY_MAX_CAPACITY = 0.5f / 50000; // MWh
         public const float REQUIRED_INPUT_HAND_DRILL = 2.0f / 50000; // MW

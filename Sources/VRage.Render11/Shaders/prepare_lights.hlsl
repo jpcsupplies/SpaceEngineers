@@ -1,3 +1,6 @@
+// @defineMandatory NUMTHREADS 16
+#include <Lighting/lightDefs.h>
+
 #ifndef NUMTHREADS_X
 #define NUMTHREADS_X NUMTHREADS
 #endif
@@ -15,17 +18,6 @@ cbuffer LightConstants : register( b1 ) {
 	uint pointlights_num;
 };
 
-struct PointLightData {
-	float3 vs_position;
-	float range;
-    float3 color;
-    float _padding;
-};
-
-#ifndef MAX_TILE_LIGHTS
-#define MAX_TILE_LIGHTS 256
-#endif
-
 StructuredBuffer<PointLightData> LightList : register ( t13 );
 RWTexture2D<float4> Output : register( u0 );
 
@@ -39,14 +31,15 @@ groupshared uint sTileNumLights;
 
 
 [numthreads(NUMTHREADS_X, NUMTHREADS_Y, 1)]
-void prepare_lights(
+void __compute_shader(
 	uint3 dispatchThreadID : SV_DispatchThreadID,
 	uint3 groupThreadID : SV_GroupThreadID,
 	uint3 GroupID : SV_GroupID,
-	uint ThreadIndex : SV_GroupIndex) {
-
+	uint ThreadIndex : SV_GroupIndex) 
+{
     [branch]
-	if(ThreadIndex == 0) {
+	if(ThreadIndex == 0) 
+    {
 		sMinZ = asuint(1.0f);
 		sMaxZ = 0;
 		sTileNumLights = 0;
@@ -120,7 +113,7 @@ void prepare_lights(
     [loop]
 	for (uint index = ThreadIndex; index < pointlights_num; index += GROUP_THREADS) {
         PointLightData light = LightList[index];
-		float4 vs_light = float4(light.vs_position, 1);
+        float4 vs_light = float4(light.positionView, 1);
                 
         bool in_frustum = true;
 	    [unroll] for (i = 0; i < 6; ++i) {

@@ -1,4 +1,5 @@
 ﻿using System;
+using VRage.Import;
 using VRage.ModAPI;
 using VRage.Utils;
 using VRageMath;
@@ -14,6 +15,7 @@ namespace VRage.Game.Entity.UseObject
         OpenInventory = 1 << 2,
         UseFinished = 1 << 3,           // Finished of using "USE" key (key released)
         Close = 1 << 4,               // Use object is closing (called before). Ie. character just got out of sight of interactive object
+        PickUp = 1 << 5,
     }
 
     public enum UseActionResult
@@ -37,6 +39,10 @@ namespace VRage.Game.Entity.UseObject
 
     public interface IMyUseObject
     {
+        IMyEntity Owner { get; }
+
+        MyModelDummy Dummy { get; }
+
         /// <summary>
         /// Consider object as being in interactive range only if distance from character is smaller or equal to this value
         /// </summary>

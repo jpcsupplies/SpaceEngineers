@@ -1,26 +1,13 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-
+﻿
 using Sandbox.Common.ObjectBuilders;
-using Sandbox.Graphics.GUI;
-using Sandbox.Graphics.TransparentGeometry;
-using Sandbox.Game.Entities.Interfaces;
-using Sandbox.Game.GameSystems.Electricity;
-using Sandbox.Game.Lights;
-using Sandbox.Game.World;
-using VRageMath;
-using System.Reflection;
-using Sandbox.Common;
-
-using System.Diagnostics;
-using Sandbox.Game.Entities.Cube;
-using Sandbox.Game.Multiplayer;
-using Sandbox.Game.Entities.Blocks;
 using Sandbox.Definitions;
 using Sandbox.Game.Components;
+using Sandbox.Game.Entities.Blocks;
+using Sandbox.Game.Entities.Cube;
+using Sandbox.Game.Lights;
 using Sandbox.ModAPI.Ingame;
+using VRage;
+using VRageMath;
 
 namespace Sandbox.Game.Entities
 {
@@ -44,7 +31,9 @@ namespace Sandbox.Game.Entities
             light.LightOwner = MyLight.LightOwnerEnum.SmallShip;
             light.UseInForwardRender = true;
             light.ReflectorTexture = BlockDefinition.ReflectorTexture;
-            light.ReflectorFalloff = 5;
+            light.Falloff = 0.3f;
+            light.GlossFactor = 0;
+            light.PointLightOffset = 0.15f;
 
             light.GlareOn = true;
             light.GlareIntensity = 1f;
@@ -52,6 +41,31 @@ namespace Sandbox.Game.Entities
             light.GlareType = VRageRender.Lights.MyGlareTypeEnum.Normal;
             light.GlareMaterial = BlockDefinition.LightGlare;
             light.GlareSize = ReflectorGlareSizeDef;
+        }
+
+        protected override void UpdateIntensity()
+        {
+            ProfilerShort.Begin("UpdateIntensity");
+            var intensity = Render.CurrentLightPower * Intensity * 0.3f;
+            var reflIntensity = Render.CurrentLightPower * Intensity;
+            m_light.ReflectorIntensity = reflIntensity;
+            m_light.Intensity = intensity;
+            m_light.GlareIntensity = intensity;
+            Render.BulbColor = ComputeBulbColor();
+            ProfilerShort.End();
+        }
+
+        public override float Falloff
+        {
+            get { return m_light.ReflectorFalloff; }
+            set
+            {
+                if (m_light.ReflectorFalloff != value)
+                {
+                    m_light.ReflectorFalloff = value;
+                    base.RaisePropertiesChanged();
+                }
+            }
         }
 
         public new MyReflectorBlockDefinition BlockDefinition
@@ -71,6 +85,12 @@ namespace Sandbox.Game.Entities
         public MyReflectorLight()
         {
             this.Render = new MyRenderComponentReflectorLight();
+        }
+
+        protected override void LightRadiusChanged()
+        {
+            base.LightRadiusChanged();
+            Radius = ReflectorRadius * (RadiusBounds.Max / ReflectorRadiusBounds.Max);
         }
 
         private static readonly Color COLOR_OFF  = new Color(30, 30, 30);

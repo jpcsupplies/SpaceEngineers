@@ -1,9 +1,9 @@
-﻿using Sandbox.Common.ObjectBuilders.Gui;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using VRage;
+using VRage.Game;
 using VRage.Input;
 using VRage.Library.Utils;
 using VRage.Utils;
@@ -496,6 +496,11 @@ namespace Sandbox.Graphics.GUI
         }
 
         /// <summary>
+        /// Called when the control enters or leaves focus.
+        /// </summary>
+        public event Action<MyGuiControlBase, bool> FocusChanged;
+
+        /// <summary>
         /// Specific user data for this control.
         /// </summary>
         public object UserData
@@ -778,6 +783,11 @@ namespace Sandbox.Graphics.GUI
                 element.ColorMask = ColorMask;
         }
 
+        internal virtual void OnFocusChanged(bool focus)
+        {
+            if (FocusChanged != null)
+                FocusChanged(this, focus);
+        }
         #endregion
 
         /// <summary>

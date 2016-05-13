@@ -8,6 +8,8 @@ using System.ComponentModel;
 using System.Configuration.Install;
 using System.ServiceProcess;
 using VRage.Dedicated;
+using VRage.Game;
+using VRage.Game.SessionComponents;
 
 #endregion
 
@@ -28,6 +30,7 @@ namespace SpaceEngineersDedicated
             MyPerServerSettings.GameDSName = MyPerServerSettings.GameNameSafe + "Dedicated";
             MyPerServerSettings.GameDSDescription = "Your place for space engineering, destruction and exploring.";
 
+            MySessionComponentExtDebug.ForceDisable = true;
 
             MyPerServerSettings.AppId = 244850;
 

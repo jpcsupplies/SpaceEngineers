@@ -1,6 +1,4 @@
-﻿
-using Sandbox.Common.ObjectBuilders.Gui;
-using Sandbox.Game.Entities.Cube;
+﻿using Sandbox.Game.Entities.Cube;
 using Sandbox.Graphics.GUI;
 using System;
 using System.Collections.Generic;
@@ -120,8 +118,11 @@ namespace Sandbox.Game.Gui
 
         public void SetValue(TBlock block, long value)
         {
-            Setter(block, value);
-            block.NotifyTerminalValueChanged(this);
+            if (Getter(block) != value)
+            {
+                Setter(block, value);
+                block.NotifyTerminalValueChanged(this);
+            }
         }
 
         void OnItemSelected()

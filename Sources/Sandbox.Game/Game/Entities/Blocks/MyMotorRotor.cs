@@ -1,16 +1,18 @@
 ﻿using Sandbox.Common.ObjectBuilders;
 using Sandbox.Game.Multiplayer;
+using Sandbox.ModAPI;
+using VRage.Game;
+using VRage.Game.Models;
 using VRageMath;
 
 namespace Sandbox.Game.Entities.Cube
 {
     [MyCubeBlockType(typeof(MyObjectBuilder_MotorRotor))]
-    public class MyMotorRotor : MyCubeBlock
+    public class MyMotorRotor : MyCubeBlock, IMyMotorRotor
     {
         public Vector3 DummyPosLoc { get; private set; }
 
         private MyMotorBase m_statorBlock;
-        private long m_statorBlockId;
 
         public MyMotorBase Stator { get { return m_statorBlock; } }
 
@@ -25,7 +27,7 @@ namespace Sandbox.Game.Entities.Cube
 
         private void LoadDummies()
         {
-            var finalModel = Engine.Models.MyModels.GetModelOnlyDummies(BlockDefinition.Model);
+            var finalModel = VRage.Game.Models.MyModels.GetModelOnlyDummies(BlockDefinition.Model);
             foreach (var dummy in finalModel.Dummies)
             {
                 if (dummy.Key.ToLower().Contains("wheel"))
@@ -42,31 +44,58 @@ namespace Sandbox.Game.Entities.Cube
             m_statorBlock = stator;
         }
 
-        internal void Detach()
+        internal void Detach(bool isWelding)
         {
-            m_statorBlock = null;
+            if (isWelding == false)
+            {
+                m_statorBlock = null;
+            }
         }
 
         public override void OnUnregisteredFromGridSystems()
         {
             if (m_statorBlock != null)
             {
-                m_statorBlock.Detach();
+                var statorBlock = m_statorBlock;          
+                statorBlock.Detach();
+                statorBlock.SyncDetach();
             }
             base.OnUnregisteredFromGridSystems();
+
+            if (Sync.IsServer)
+            {
+                CubeGrid.OnGridSplit -= CubeGrid_OnGridSplit;
+            }
         }
 
-        public override void OnRemovedByCubeBuilder()
+        public override void OnRegisteredToGridSystems()
+        {
+            base.OnRegisteredToGridSystems();
+
+            if (Sync.IsServer)
+            {
+                CubeGrid.OnGridSplit += CubeGrid_OnGridSplit;
+            }
+        }
+
+        protected void CubeGrid_OnGridSplit(MyCubeGrid grid1, MyCubeGrid grid2)
         {
             if (m_statorBlock != null)
             {
-                var tmpStatorBlock = m_statorBlock;
-                m_statorBlock.Detach(); // This will call our detach and set m_statorBlock to null
-                if (Sync.IsServer)
-                    tmpStatorBlock.CubeGrid.RemoveBlock(tmpStatorBlock.SlimBlock, updatePhysics: true);
+                m_statorBlock.OnGridSplit();
             }
-            base.OnRemovedByCubeBuilder();
         }
 
+        #region ModAPI implementation
+        ModAPI.IMyMotorBase ModAPI.IMyMotorRotor.Stator
+        {
+            get { return Stator; }
+        }
+
+        bool ModAPI.Ingame.IMyMotorRotor.IsAttached
+        {
+            get { return Stator != null; }
+        }
+        #endregion
     }
 }

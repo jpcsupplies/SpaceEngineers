@@ -7,13 +7,19 @@ namespace VRage
 {
     public static class MyCompilationSymbols
     {
-        public const bool PerformanceProfiling = true;
+        public const bool PerformanceProfiling = false;
+
+        public const bool ProfileFromStart = false;
+        public const bool ProfileWorkingSetMemory = false;
 
         public const bool EnableSharpDxObjectTracking = false;
 
         public static bool MemoryProfiling = IsProfilerAttached();
 
         public static bool PerformanceOrMemoryProfiling = MemoryProfiling || PerformanceProfiling;
+
+        public const bool DX11Debug = false;
+        public const bool DX11DebugOutput = false;
 
         /// <summary>
         /// This is reliable, enforced by .NET documentation.

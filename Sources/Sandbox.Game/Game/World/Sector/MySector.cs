@@ -9,7 +9,10 @@ using Sandbox.Game.Entities.Character;
 using Sandbox.Common;
 using Sandbox.Definitions;
 using System.Diagnostics;
+using VRage.Game;
 using VRage.ObjectBuilders;
+using VRage.Game.Components;
+using VRage.Game.Utils;
 
 namespace Sandbox.Game.World
 {
@@ -111,7 +114,7 @@ namespace Sandbox.Game.World
 
         public override void LoadData()
         {
-            MainCamera = new MyCamera();
+            MainCamera = new MyCamera(MySandboxGame.Config.FieldOfView, MySandboxGame.ScreenViewport);
             MainCamera.FarPlaneDistance = MySession.Static.Settings.ViewDistance;
             MyEntities.LoadData();
         }
@@ -125,7 +128,6 @@ namespace Sandbox.Game.World
 
         public override void UpdateBeforeSimulation()
         {
-            MainCamera.Update();
             MyEntities.UpdateBeforeSimulation();
 
             base.UpdateBeforeSimulation();

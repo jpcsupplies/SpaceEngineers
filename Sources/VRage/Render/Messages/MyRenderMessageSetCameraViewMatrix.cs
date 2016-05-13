@@ -7,13 +7,13 @@ using VRageMath;
 
 namespace VRageRender
 {
-    public class MyRenderMessageSetCameraViewMatrix : IMyRenderMessage
+    public class MyRenderMessageSetCameraViewMatrix : MyRenderMessageBase
     {
         public MatrixD ViewMatrix;
         public Matrix ProjectionMatrix;
-        public Matrix NearProjectionMatrix;
         public float FOV;
-        public float NearFOV;
+        // public float NearFOV; // not used anymore
+        // public Matrix NearProjectionMatrix; // not used anymore
         public float SafeNear;
         public float NearPlane;
         public float FarPlane;
@@ -23,7 +23,7 @@ namespace VRageRender
 
         public MyTimeSpan UpdateTime;
 
-        MyRenderMessageType IMyRenderMessage.MessageClass { get { return MyRenderMessageType.StateChangeEvery; } }
-        MyRenderMessageEnum IMyRenderMessage.MessageType { get { return MyRenderMessageEnum.SetCameraViewMatrix; } }
+        public override MyRenderMessageType MessageClass { get { return MyRenderMessageType.StateChangeEvery; } }
+        public override MyRenderMessageEnum MessageType { get { return MyRenderMessageEnum.SetCameraViewMatrix; } }
     }
 }

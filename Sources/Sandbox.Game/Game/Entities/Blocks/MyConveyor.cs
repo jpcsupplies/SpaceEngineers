@@ -9,6 +9,7 @@ using Sandbox.Game.Entities.Cube;
 using Sandbox.Game.GameSystems.Conveyors;
 using VRageMath;
 using System.Diagnostics;
+using VRage.Game;
 using VRageRender;
 
 namespace Sandbox.Game.Entities
@@ -34,5 +35,20 @@ namespace Sandbox.Game.Entities
         {
             base.Init(objectBuilder, cubeGrid);
         }
+
+        #region IMyConveyorEndpointBlock implementation
+
+        public Sandbox.Game.GameSystems.Conveyors.PullInformation GetPullInformation()
+        {
+            return null;
+        }
+
+        public Sandbox.Game.GameSystems.Conveyors.PullInformation GetPushInformation()
+        {
+            return null;
+        }
+
+        #endregion
+
     }
 }

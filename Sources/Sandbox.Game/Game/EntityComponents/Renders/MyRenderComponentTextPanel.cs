@@ -2,12 +2,12 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using Sandbox.Common.Components;
+
 using VRageRender;
 using VRageMath;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Blocks;
-using VRage.Components;
+using VRage.Game.Components;
 
 namespace Sandbox.Game.Components
 {

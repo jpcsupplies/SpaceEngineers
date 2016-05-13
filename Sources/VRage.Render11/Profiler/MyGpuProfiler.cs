@@ -43,7 +43,7 @@ namespace VRageRender
 
         internal bool IsFinished()
         {
-            return MyImmediateRC.RC.Context.IsDataAvailable(m_disjoint.m_query, AsynchronousFlags.DoNotFlush);
+            return MyImmediateRC.RC.DeviceContext.IsDataAvailable(m_disjoint.m_query, AsynchronousFlags.DoNotFlush);
         }
 
         internal void Clear()
@@ -83,7 +83,7 @@ namespace VRageRender
             }
 
             var front = m_frames.ElementAt(0);
-            while (!MyImmediateRC.RC.Context.IsDataAvailable(front.m_disjoint.m_query))
+            while (!MyImmediateRC.RC.DeviceContext.IsDataAvailable(front.m_disjoint.m_query))
             {
                 Thread.Sleep(1);
             }
@@ -99,7 +99,9 @@ namespace VRageRender
             bool ok = true;
             while (ok)
             {
-                ok = m_frames.ElementAt(0).IsFinished();
+				//this will fail if all frames are finished.
+				//ok = m_frames.ElementAt(0).IsFinished();
+                ok = m_frames.Count == 0 ? false : m_frames.ElementAt(0).IsFinished();
                 if (ok)
                 {
                     var frame = m_frames.Dequeue();
@@ -113,9 +115,13 @@ namespace VRageRender
 
         static void GatherFrame(MyFrameProfiling frame)
         {
-            QueryDataTimestampDisjoint disjoint = MyImmediateRC.RC.Context.GetData<QueryDataTimestampDisjoint>(frame.m_disjoint.m_query, AsynchronousFlags.DoNotFlush);
+            QueryDataTimestampDisjoint disjoint = MyImmediateRC.RC.DeviceContext.GetData<QueryDataTimestampDisjoint>(frame.m_disjoint.m_query, AsynchronousFlags.DoNotFlush);
 
+#if UNSHARPER
+            if (!disjoint.Disjoint.value)
+#else
             if (!disjoint.Disjoint)
+#endif
             {
                 var freq = disjoint.Frequency;
                 double invFreq = 1.0 / (double)freq;
@@ -129,7 +135,7 @@ namespace VRageRender
                     var q = frame.m_issued.Dequeue();
 
                     ulong timestamp;
-                    MyImmediateRC.RC.Context.GetData<ulong>(q.m_query, AsynchronousFlags.DoNotFlush, out timestamp);
+                    MyImmediateRC.RC.DeviceContext.GetData<ulong>(q.m_query, AsynchronousFlags.DoNotFlush, out timestamp);
 
                     if (q.m_info == MyIssuedQueryEnum.BlockStart)
                     {
@@ -160,6 +166,8 @@ namespace VRageRender
 
         internal static void IC_Enqueue(MyIssuedQuery q)
         {
+			if (m_currentFrame == null)
+				return;
             m_currentFrame.m_issued.Enqueue(q);
         }
 

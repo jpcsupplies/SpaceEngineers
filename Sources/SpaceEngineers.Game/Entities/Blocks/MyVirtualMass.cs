@@ -9,7 +9,7 @@ using Sandbox.Game.Entities.Cube;
 using Sandbox.Game.EntityComponents;
 using Sandbox.Game.Localization;
 using Sandbox.ModAPI.Ingame;
-using SpaceEngineers.Game.ModAPI.Ingame;
+using SpaceEngineers.Game.ModAPI;
 using VRage;
 using VRage.Game;
 using VRage.Game.Components;
@@ -20,7 +20,7 @@ using VRageMath;
 namespace SpaceEngineers.Game.Entities.Blocks
 {
     [MyCubeBlockType(typeof(MyObjectBuilder_VirtualMass))]
-    class MyVirtualMass : MyFunctionalBlock, IMyVirtualMass
+    public class MyVirtualMass : MyFunctionalBlock, IMyVirtualMass
     {
         #region Properties
 
@@ -31,7 +31,7 @@ namespace SpaceEngineers.Game.Entities.Blocks
 
         protected override bool CheckIsWorking()
         {
-			return ResourceSink.IsPowered && base.CheckIsWorking();
+            return ResourceSink.IsPoweredByType(MyResourceDistributorComponent.ElectricityId) && base.CheckIsWorking();
         }
 
         #endregion
@@ -120,10 +120,10 @@ namespace SpaceEngineers.Game.Entities.Blocks
             DetailedInfo.Append(IsWorking ? BlockDefinition.VirtualMass.ToString() : "0");
             DetailedInfo.Append(" kg\n");
             DetailedInfo.AppendStringBuilder(MyTexts.Get(MySpaceTexts.BlockPropertiesText_RequiredInput));
-			MyValueFormatter.AppendWorkInBestUnit(ResourceSink.RequiredInput, DetailedInfo);
+            MyValueFormatter.AppendWorkInBestUnit(ResourceSink.RequiredInputByType(MyResourceDistributorComponent.ElectricityId), DetailedInfo);
             DetailedInfo.Append("\n");
             DetailedInfo.AppendStringBuilder(MyTexts.Get(MySpaceTexts.BlockPropertyProperties_CurrentInput));
-			MyValueFormatter.AppendWorkInBestUnit(ResourceSink.CurrentInput, DetailedInfo);
+            MyValueFormatter.AppendWorkInBestUnit(ResourceSink.CurrentInputByType(MyResourceDistributorComponent.ElectricityId), DetailedInfo);
             RaisePropertiesChanged();
         }
 
@@ -164,7 +164,7 @@ namespace SpaceEngineers.Game.Entities.Blocks
 			ResourceSink.Update();
         }
 
-        float IMyVirtualMass.VirtualMass
+        float ModAPI.Ingame.IMyVirtualMass.VirtualMass
         {
             get { return BlockDefinition.VirtualMass; }
         }

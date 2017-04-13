@@ -25,12 +25,14 @@ using Sandbox.Game.Localization;
 using VRage.Game;
 using VRage.ObjectBuilders;
 using Sandbox.Game.Multiplayer;
+using Sandbox.ModAPI.Weapons;
+using VRage.Audio;
 
 #endregion
 
 namespace Sandbox.Game.Weapons
 {
-    public abstract class MyBlockPlacerBase : MyEngineerToolBase
+    public abstract class MyBlockPlacerBase : MyEngineerToolBase, IMyBlockPlacerBase
     {
         public static MyHudNotificationBase MissingComponentNotification =
              new MyHudNotification(MyCommonTexts.NotificationMissingComponentToPlaceBlockFormat, font: MyFontEnum.Red, priority: 1);
@@ -93,7 +95,7 @@ namespace Sandbox.Game.Weapons
 
                 m_lastKeyPress = MySandboxGame.TotalGamePlayTimeInMilliseconds;
 
-                var definition = MyCubeBuilder.Static.HudBlockDefinition;
+                var definition = MyCubeBuilder.Static.CubeBuilderState.CurrentBlockDefinition;
                 if (definition == null)
                 {
                     return;
@@ -109,13 +111,11 @@ namespace Sandbox.Game.Weapons
                 // Must have first component to start building
                 if (MyCubeBuilder.Static.CanStartConstruction(Owner))
                 {
-                    bool placingGrid = MyCubeBuilder.Static.ShipCreationClipboard.IsActive;
-                    m_closeAfterBuild = MyCubeBuilder.Static.AddConstruction(Owner) && placingGrid;
-                    return;
+                    MyCubeBuilder.Static.AddConstruction(Owner);
                 }
                 else
                 {
-                    if (!MySession.Static.Battle && MySession.Static.IsAdminModeEnabled(Sync.MyId)==false)
+                    if (!MySession.Static.CreativeToolsEnabled(Sync.MyId))
                         OnMissingComponents(definition);
                 }
             }
@@ -158,8 +158,8 @@ namespace Sandbox.Game.Weapons
             }
             else
             {
-                if (MyPerGameSettings.CheckUseAnimationInsteadOfIK())
-                    character.PlayCharacterAnimation("Building_pose", MyBlendOption.Immediate, MyFrameOption.Loop, 0.2f);
+                //if (MyPerGameSettings.CheckUseAnimationInsteadOfIK())
+                //    character.PlayCharacterAnimation("Building_pose", MyBlendOption.Immediate, MyFrameOption.Loop, 0.2f);
             }
         }
 
@@ -169,7 +169,8 @@ namespace Sandbox.Game.Weapons
 
             if (Owner != null && Owner.ControllerInfo.IsLocallyHumanControlled())
             {
-                BlockBuilder.Deactivate();
+                //BlockBuilder.Deactivate();
+                MySession.Static.GameFocusManager.Clear();
             }
 
             base.OnControlReleased();
@@ -183,12 +184,19 @@ namespace Sandbox.Game.Weapons
 
             if (Owner != null)
             {
-                if (MyPerGameSettings.CheckUseAnimationInsteadOfIK())
-                    Owner.PlayCharacterAnimation("Building_pose", MyBlendOption.Immediate, MyFrameOption.Loop, 0.2f); 
-                if (Owner.ControllerInfo.IsLocallyHumanControlled())
+                if (owner.UseNewAnimationSystem)
                 {
-                    BlockBuilder.Activate();
+                    Owner.TriggerCharacterAnimationEvent("building", false);
                 }
+                else
+                {
+                    Owner.PlayCharacterAnimation("Building_pose", MyBlendOption.Immediate, MyFrameOption.Loop, 0.2f);
+                }
+
+                //if (Owner.ControllerInfo.IsLocallyHumanControlled())
+                //{
+                //    BlockBuilder.Activate();
+                //}
             }
         }
 

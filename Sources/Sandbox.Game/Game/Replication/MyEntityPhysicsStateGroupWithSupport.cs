@@ -150,7 +150,7 @@ namespace Sandbox.Game.Replication
             }
             else
             {
-               if (stream.ReadBool())
+                if (stream.ReadBool())
                 {
                     MyEntity support;
                     bool apply = MyEntities.TryGetEntityById(stream.ReadInt64(), out support) && !IsControlledLocally;
@@ -186,7 +186,7 @@ namespace Sandbox.Game.Replication
                 else
                 {
                     SetSupport(null);
-                    base.Serialize(stream, forClient,timestamp, packetId, maxBitPosition);
+                    base.Serialize(stream, forClient, timestamp, packetId, maxBitPosition);
                 }
             }
         }

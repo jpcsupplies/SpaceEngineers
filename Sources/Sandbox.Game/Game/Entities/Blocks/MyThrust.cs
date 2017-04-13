@@ -35,6 +35,7 @@ using VRage.ModAPI;
 using VRage.Game.Components;
 using VRage.Game.Entity;
 using VRage.Game.ModAPI.Interfaces;
+using VRage.Sync;
 
 #endregion
 
@@ -92,7 +93,7 @@ namespace Sandbox.Game.Entities
         public Vector3 ThrustForce { get { return -ThrustForwardVector * (BlockDefinition.ForceMagnitude * m_thrustMultiplier); } }
 
         public Vector3I ThrustForwardVector { get { return Base6Directions.GetIntVector(Orientation.Forward); } }
-		public Vector4 ThrustColor { get; private set; }
+        public Vector4 ThrustColor { get; private set; }
 
         private readonly List<MyPhysics.HitInfo> m_gridRayCastLst;
         private readonly List<HkBodyCollision> m_flameCollisionsList;
@@ -110,7 +111,8 @@ namespace Sandbox.Game.Entities
         /// </summary>
         private readonly Sync<float> m_thrustOverride;
 
-        public float ThrustOverride  {
+        public float ThrustOverride
+        {
             get { return m_thrustOverride * m_thrustMultiplier * BlockDefinition.ForceMagnitude * 0.01f; }
         }
 
@@ -140,6 +142,15 @@ namespace Sandbox.Game.Entities
             return IsWorking && Vector3.DistanceSquared(MySector.MainCamera.Position, PositionComp.GetPosition()) < m_maxBillboardDistanceSquared;
         }
 
+        public static float LIGHT_INTENSITY_BASE = 4.5f;
+        public static float LIGHT_INTENSITY_LENGTH = 1.7f;
+        public static float LIGHT_RANGE_RADIUS = 2.0f;
+        public static float LIGHT_RANGE_LENGTH = 0.1f;
+        public static float GLARE_INTENSITY_BASE = 0.24f;
+        public static float GLARE_INTENSITY_LENGTH = 0.2f;
+        public static float GLARE_SIZE_RADIUS = 0.8f;
+        public static float GLARE_SIZE_LENGTH = 0.05f;
+
         public void UpdateLight()
         {
             bool shouldLit = (float)Vector3D.DistanceSquared(MySector.MainCamera.Position, PositionComp.GetPosition()) < m_maxLightDistanceSquared; ;
@@ -149,27 +160,23 @@ namespace Sandbox.Game.Entities
                 var f = m_flames[0];
                 var position = Vector3D.Transform(f.Position, PositionComp.WorldMatrix);
 
-                float radius = ThrustRadiusRand * f.Radius;
-                float length = ThrustLengthRand * f.Radius;
-                float thickness = ThrustThicknessRand * f.Radius;
+                float radius = ThrustRadiusRand * f.Radius * CubeGrid.GridScale;
+                float length = ThrustLengthRand * f.Radius * CubeGrid.GridScale;
 
                 Light.LightOn = true;
-                Light.Intensity = 1.3f + length;
+                Light.Intensity = LIGHT_INTENSITY_BASE + length * LIGHT_INTENSITY_LENGTH;
 
-                Light.Range = radius * 2 + length / 10;
+                Light.Range = radius * LIGHT_RANGE_RADIUS + length * LIGHT_RANGE_LENGTH;
 
                 Light.Position = Vector3D.Transform(position, MatrixD.Invert(CubeGrid.PositionComp.WorldMatrix));
                 Light.ParentID = CubeGrid.Render.GetRenderObjectID();
 
                 Light.GlareOn = true;
 
-                if (((MyCubeGrid)Parent).GridSizeEnum == MyCubeSize.Large)
-                    Light.GlareIntensity = 0.5f + length * 2;
-                else
-                    Light.GlareIntensity = 0.5f + length * 2;
+                Light.GlareIntensity = GLARE_INTENSITY_BASE + length * GLARE_INTENSITY_LENGTH;
 
                 Light.GlareType = VRageRender.Lights.MyGlareTypeEnum.Normal;
-                Light.GlareSize = (radius * 0.8f + length * 0.05f) * m_glareSize;
+                Light.GlareSize = (radius * GLARE_SIZE_RADIUS + length * GLARE_SIZE_LENGTH) * m_glareSize * CubeGrid.GridScale;
 
                 Light.UpdateLight();
             }
@@ -191,8 +198,29 @@ namespace Sandbox.Game.Entities
 
         #endregion
 
-        static MyThrust()
+        public MyThrust()
         {
+#if XB1 // XB1_SYNC_NOREFLECTION
+            m_thrustOverride = SyncType.CreateAndAddProp<float>();
+#endif // XB1
+            CreateTerminalControls();
+
+            Render.NeedsDrawFromParent = true;
+            NeedsUpdate = MyEntityUpdateEnum.EACH_10TH_FRAME | MyEntityUpdateEnum.EACH_100TH_FRAME;
+            m_flameCollisionsList = new List<HkBodyCollision>();
+            m_damagedEntities = new List<IMyEntity>();
+            m_gridRayCastLst = new List<MyPhysics.HitInfo>();
+            Render = new MyRenderComponentThrust();
+            AddDebugRenderComponent(new MyDebugRenderComponentThrust(this));
+            m_thrustOverride.ValueChanged += (x) => ThrustOverrideValueChanged();
+        }
+
+
+        protected override void CreateTerminalControls()
+        {
+            if (MyTerminalControlFactory.AreControlsCreated<MyThrust>())
+                return;
+            base.CreateTerminalControls();
             float threshold = 1f;
             var thrustOverride = new MyTerminalControlSlider<MyThrust>("Override", MySpaceTexts.BlockPropertyTitle_ThrustOverride, MySpaceTexts.BlockPropertyDescription_ThrustOverride);
             thrustOverride.Getter = (x) => x.m_thrustOverride;
@@ -206,25 +234,13 @@ namespace Sandbox.Game.Entities
             thrustOverride.SetLimits((x) => 0f, (x) => 100f);
             thrustOverride.EnableActions();
             thrustOverride.Writer = (x, result) =>
-                {
-                    if (x.ThrustOverride < 1f)
-                        result.Append(MyTexts.Get(MyCommonTexts.Disabled));
-                    else
-                        MyValueFormatter.AppendForceInBestUnit(x.ThrustOverride * x.m_thrustComponent.GetLastThrustMultiplier(x), result);
-                };
+            {
+                if (x.ThrustOverride < 1f)
+                    result.Append(MyTexts.Get(MyCommonTexts.Disabled));
+                else
+                    MyValueFormatter.AppendForceInBestUnit(x.ThrustOverride * x.m_thrustComponent.GetLastThrustMultiplier(x), result);
+            };
             MyTerminalControlFactory.AddControl(thrustOverride);
-        }
-
-        public MyThrust()
-        {
-            Render.NeedsDrawFromParent = true;
-            NeedsUpdate = MyEntityUpdateEnum.EACH_10TH_FRAME | MyEntityUpdateEnum.EACH_100TH_FRAME;
-            m_flameCollisionsList = new List<HkBodyCollision>();
-            m_damagedEntities = new List<IMyEntity>();
-            m_gridRayCastLst = new List<MyPhysics.HitInfo>();
-            Render = new MyRenderComponentThrust();
-            AddDebugRenderComponent(new MyDebugRenderComponentThrust(this));
-            m_thrustOverride.ValueChanged += (x) => ThrustOverrideValueChanged();
         }
 
         private void ThrustOverrideValueChanged()
@@ -271,7 +287,7 @@ namespace Sandbox.Game.Entities
 
             base.Init(objectBuilder, cubeGrid);
 
-        
+
 
             var builder = (MyObjectBuilder_Thrust)objectBuilder;
 
@@ -280,25 +296,26 @@ namespace Sandbox.Game.Entities
             m_thrustOverride.Value = (builder.ThrustOverride * 100f) / BlockDefinition.ForceMagnitude;
 
             LoadDummies();
+            NeedsUpdate |= MyEntityUpdateEnum.EACH_100TH_FRAME;
 
             m_light = MyLights.AddLight();
             m_light.ReflectorDirection = WorldMatrix.Forward;
             m_light.ReflectorUp = WorldMatrix.Up;
-            m_light.ReflectorRange = 1;
+            m_light.ReflectorRange = CubeGrid.GridScale;
             m_light.Color = ThrustColor;
             m_light.GlareMaterial = BlockDefinition.FlameGlareMaterial;
-            m_light.GlareQuerySize = BlockDefinition.FlameGlareQuerySize;
+            m_light.GlareQuerySize = BlockDefinition.FlameGlareQuerySize * CubeGrid.GridScale;
 
-            m_glareSize = BlockDefinition.FlameGlareSize;
-            m_maxBillboardDistanceSquared = BlockDefinition.FlameVisibilityDistance*BlockDefinition.FlameVisibilityDistance;
-            m_maxLightDistanceSquared = m_maxBillboardDistanceSquared / 100;
+            m_glareSize = BlockDefinition.FlameGlareSize * CubeGrid.GridScale;
+            m_maxBillboardDistanceSquared = BlockDefinition.FlameVisibilityDistance * BlockDefinition.FlameVisibilityDistance;
+            m_maxLightDistanceSquared = m_maxBillboardDistanceSquared ;
 
             m_light.Start(MyLight.LightTypeEnum.PointLight, 1);
 
             UpdateDetailedInfo();
 
             FuelConverterDefinition = !MyFakes.ENABLE_HYDROGEN_FUEL ? new MyFuelConverterInfo { Efficiency = 1.0f } : BlockDefinition.FuelConverter;
-        	    
+
             SlimBlock.ComponentStack.IsFunctionalChanged += ComponentStack_IsFunctionalChanged;
         }
 
@@ -314,7 +331,7 @@ namespace Sandbox.Game.Entities
                     m_propellerMaxDistance = BlockDefinition.PropellerMaxDistance * BlockDefinition.PropellerMaxDistance;
                     m_propellerAcceleration = (1f / BlockDefinition.PropellerAcceleration) * VRage.Game.MyEngineConstants.UPDATE_STEP_SIZE_IN_SECONDS;
                     m_propellerDeceleration = (1f / BlockDefinition.PropellerDeceleration) * VRage.Game.MyEngineConstants.UPDATE_STEP_SIZE_IN_SECONDS;
-                    NeedsUpdate |= MyEntityUpdateEnum.EACH_FRAME;
+                    NeedsUpdate |= MyEntityUpdateEnum.EACH_FRAME | MyEntityUpdateEnum.EACH_10TH_FRAME;
                     return true;
                 }
             }
@@ -362,8 +379,8 @@ namespace Sandbox.Game.Entities
                 entityThrustComponent.Init();
                 CubeGrid.Components.Add<MyEntityThrustComponent>(entityThrustComponent);
             }
-	        m_thrustComponent = entityThrustComponent;
-			m_thrustComponent.Register(this, ThrustForwardVector, OnRegisteredToThrustComponent);
+            m_thrustComponent = entityThrustComponent;
+            m_thrustComponent.Register(this, ThrustForwardVector, OnRegisteredToThrustComponent);
         }
 
         private bool OnRegisteredToThrustComponent()
@@ -395,7 +412,7 @@ namespace Sandbox.Game.Entities
 
         void ComponentStack_IsFunctionalChanged()
         {
-            if(CubeGrid.GridSystems.ResourceDistributor != null)
+            if (CubeGrid.GridSystems.ResourceDistributor != null)
                 CubeGrid.GridSystems.ResourceDistributor.ConveyorSystem_OnPoweredChanged(); // Hotfix TODO
         }
 
@@ -413,12 +430,13 @@ namespace Sandbox.Game.Entities
                     m_flames.Add(f);
                 }
             }
-            if(BlockDefinition != null)m_propellerActive = LoadPropeller();
+            if (BlockDefinition != null)
+                m_propellerActive = LoadPropeller();
         }
 
         protected override void Closing()
         {
-		//	m_thrustComponent.Unregister(this, ThrustForwardVector);
+            //	m_thrustComponent.Unregister(this, ThrustForwardVector);
             MyLights.RemoveLight(m_light);
             base.Closing();
         }
@@ -436,7 +454,9 @@ namespace Sandbox.Game.Entities
 
         public override void UpdateBeforeSimulation()
         {
-            if (m_propellerActive && m_propellerCalculate) PropellerUpdate();
+            if (m_propellerActive && m_propellerCalculate)
+                PropellerUpdate();
+
             base.UpdateBeforeSimulation();
         }
 
@@ -488,7 +508,7 @@ namespace Sandbox.Game.Entities
 
                         if (ent is IMyDestroyableObject)
                             (ent as IMyDestroyableObject).DoDamage(flameInfo.Radius * BlockDefinition.FlameDamage * 10, MyDamageType.Environment, true, attackerId: EntityId);
-                        else if (ent is MyCubeGrid)
+                        else if (ent is MyCubeGrid)  
                         {
                             var grid = ent as MyCubeGrid;
                             if (grid.BlocksDestructionEnabled)
@@ -515,28 +535,38 @@ namespace Sandbox.Game.Entities
             {
                 //MyRenderProxy.DebugDrawSphere(hit.Value, 0.1f, Color.Green.ToVector3(), 1, true);
                 MyPhysics.CastRay(hit.Value - l.Direction * 0.1f, hit.Value + l.Direction * 0.1f, m_gridRayCastLst, MyPhysics.CollisionLayers.ObjectDetectionCollisionLayer);
-                if ((m_gridRayCastLst.Count == 0 || m_gridRayCastLst[0].HkHitInfo.GetHitEntity() != grid) && grid == CubeGrid)
+                if (m_gridRayCastLst.Count == 0 || m_gridRayCastLst[0].HkHitInfo.GetHitEntity() != grid)    //If you found something other than the targeted grid do nothing
                 {
                     m_gridRayCastLst.Clear();
                     return;
                 }
+
+                Vector3D offsetHit = hit.Value + l.Direction * 0.1;
                 m_gridRayCastLst.Clear();
-                var block = grid.GetCubeBlock(grid.WorldToGridInteger(hit.Value));
+                var block = grid.GetCubeBlock(grid.WorldToGridInteger(offsetHit));
                 //if (block != this.SlimBlock)
                 {
                     //MyRenderProxy.DebugDrawSphere(hit.Value, 0.1f, Color.Green.ToVector3(), 1, true);
                     var invWorld = grid.PositionComp.WorldMatrixNormalizedInv;
-                    var gridPos = Vector3D.Transform(hit.Value, invWorld);
+                    var gridPos = Vector3D.Transform(offsetHit, invWorld);
                     var gridDir = Vector3D.TransformNormal(l.Direction, invWorld);
                     if (block != null)
+                    {
+                        //We dont want to damage thruster itself
+                        //We dont want smallship thruster to damage heavy armors because of landing
                         if (block.FatBlock != this && (CubeGrid.GridSizeEnum == MyCubeSize.Large || block.BlockDefinition.DeformationRatio > 0.25))
                         {
                             block.DoDamage(30 * BlockDefinition.FlameDamage, MyDamageType.Environment, attackerId: EntityId);
                         }
-                    var areaPlanar = 0.5f * flameInfo.Radius * CubeGrid.GridSize;
-                    var areaVertical = 0.5f * CubeGrid.GridSize;
+                    }
 
-                    grid.Physics.ApplyDeformation(BlockDefinition.FlameDamage, areaPlanar, areaVertical, gridPos, gridDir, MyDamageType.Environment, CubeGrid.GridSizeEnum == MyCubeSize.Small ? 0.1f : 0, attackerId: EntityId);
+                    if (block == null || block.FatBlock != this)
+                    {
+                        var areaPlanar = 0.5f * flameInfo.Radius * CubeGrid.GridSize;
+                        var areaVertical = 0.5f * CubeGrid.GridSize;
+
+                        grid.Physics.ApplyDeformation(BlockDefinition.FlameDamage, areaPlanar, areaVertical, gridPos, gridDir, MyDamageType.Environment, CubeGrid.GridSizeEnum == MyCubeSize.Small ? 0.1f : 0, attackerId: EntityId);
+                    }
                 }
             }
         }
@@ -566,6 +596,11 @@ namespace Sandbox.Game.Entities
             if (m_propellerActive)
             {
                 m_propellerCalculate = Vector3D.DistanceSquared(this.PositionComp.GetPosition(), MySector.MainCamera.Position) < m_propellerMaxDistance;
+
+                if (m_propellerCalculate)
+                    NeedsUpdate |= MyEntityUpdateEnum.EACH_FRAME;
+                else
+                    NeedsUpdate &= ~MyEntityUpdateEnum.EACH_FRAME;
             }
         }
 
@@ -577,7 +612,7 @@ namespace Sandbox.Game.Entities
 
         private void UpdateSoundState()
         {
-            if (m_soundEmitter == null)
+            if (m_soundEmitter == null || !IsWorking)
                 return;
             if (CurrentStrength > 0.1f)
             {
@@ -647,8 +682,8 @@ namespace Sandbox.Game.Entities
 
                 if (m_thrustComponent != null)
                     m_thrustComponent.MarkDirty();
-                }
             }
+        }
 
         private float m_powerConsumptionMultiplier = 1f;
         float Sandbox.ModAPI.IMyThrust.PowerConsumptionMultiplier
@@ -672,6 +707,21 @@ namespace Sandbox.Game.Entities
             }
         }
 
+        float Sandbox.ModAPI.Ingame.IMyThrust.MaxThrust
+        {
+            get
+            {
+                return BlockDefinition.ForceMagnitude * m_thrustMultiplier;
+            }
+        }
+
+        float Sandbox.ModAPI.Ingame.IMyThrust.CurrentThrust
+        {
+            get
+            {
+                return CurrentStrength * BlockDefinition.ForceMagnitude * m_thrustMultiplier;
+            }
+        }
         private MyMultilineConveyorEndpoint m_conveyorEndpoint;
         public IMyConveyorEndpoint ConveyorEndpoint { get { return m_conveyorEndpoint; } }
         public void InitializeConveyorEndpoint()

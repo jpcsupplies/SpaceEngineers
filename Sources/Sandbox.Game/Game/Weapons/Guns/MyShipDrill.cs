@@ -25,13 +25,14 @@ using VRage.Game.Entity;
 using VRage.Game.ModAPI.Ingame;
 using VRage.Game.ModAPI.Interfaces;
 using VRage.ModAPI;
+using VRage.Sync;
 using VRage.Utils;
 using VRageMath;
 
 namespace Sandbox.Game.Weapons
 {
     [MyCubeBlockType(typeof(MyObjectBuilder_Drill))]
-    class MyShipDrill : MyFunctionalBlock, IMyGunObject<MyToolBase>, IMyInventoryOwner, IMyConveyorEndpointBlock, IMyShipDrill
+    public class MyShipDrill : MyFunctionalBlock, IMyGunObject<MyToolBase>, IMyInventoryOwner, IMyConveyorEndpointBlock, IMyShipDrill
     {
         private const float HEAD_MAX_ROTATION_SPEED = MathHelper.TwoPi*2f;
         private const float HEAD_SLOWDOWN_TIME_IN_SECONDS = 0.5f;
@@ -88,9 +89,26 @@ namespace Sandbox.Game.Weapons
 
         public MyShipDrill()
         {
+#if XB1 // XB1_SYNC_NOREFLECTION
+            m_useConveyorSystem = SyncType.CreateAndAddProp<bool>();
+#endif // XB1
+            CreateTerminalControls();
+
             NeedsUpdate |= MyEntityUpdateEnum.EACH_FRAME | MyEntityUpdateEnum.EACH_100TH_FRAME;
             Debug.Assert((NeedsUpdate & MyEntityUpdateEnum.EACH_10TH_FRAME) == 0, "Base class of ship drill uses Update10, and ship drill turns it on and off. Things might break!");
             SetupDrillFrameCountdown();
+        }
+
+        protected override void CreateTerminalControls()
+        {
+            if (MyTerminalControlFactory.AreControlsCreated<MyShipDrill>())
+                return;
+            base.CreateTerminalControls();
+            var useConvSystem = new MyTerminalControlOnOffSwitch<MyShipDrill>("UseConveyor", MySpaceTexts.Terminal_UseConveyorSystem);
+            useConvSystem.Getter = (x) => (x).UseConveyorSystem;
+            useConvSystem.Setter = (x, v) => (x).UseConveyorSystem = v;
+            useConvSystem.EnableToggleAction();
+            MyTerminalControlFactory.AddControl(useConvSystem);
         }
 
         public override void Init(MyObjectBuilder_CubeBlock builder, MyCubeGrid cubeGrid)
@@ -110,7 +128,7 @@ namespace Sandbox.Game.Weapons
                                        MyDrillConstants.DRILL_SHIP_DUST_STONES_EFFECT,
                                        MyDrillConstants.DRILL_SHIP_SPARKS_EFFECT,
                                        new MyDrillSensorSphere(def.SensorRadius, def.SensorOffset),
-                                       new MyDrillCutOut(def.SensorOffset, def.SensorRadius),
+                                       new MyDrillCutOut(def.CutOutOffset, def.CutOutRadius),
                                        HEAD_SLOWDOWN_TIME_IN_SECONDS, -0.4f, 0.4f, 1
             );
 
@@ -188,7 +206,7 @@ namespace Sandbox.Game.Weapons
 
         protected override bool CheckIsWorking()
         {
-            return ResourceSink.IsPowered && base.CheckIsWorking();
+            return ResourceSink.IsPoweredByType(MyResourceDistributorComponent.ElectricityId) && base.CheckIsWorking();
         }
 
         protected override void OnEnabledChanged()
@@ -200,7 +218,7 @@ namespace Sandbox.Game.Weapons
 
         void OnIsWorkingChanged(MyCubeBlock obj)
         {
-            ResourceSink.Update();
+            WantstoDrillChanged();
         }
 
         void Receiver_IsPoweredChanged()
@@ -230,7 +248,7 @@ namespace Sandbox.Game.Weapons
         void WantstoDrillChanged()
         {
             ResourceSink.Update();
-            if ((Enabled || WantsToDrill) && IsFunctional && ResourceSink != null && ResourceSink.IsPowered)
+            if ((Enabled || WantsToDrill) && IsFunctional && ResourceSink != null && ResourceSink.IsPoweredByType(MyResourceDistributorComponent.ElectricityId))
             {
                 // starts the animation
                 if (!m_drillBase.IsDrilling)
@@ -280,7 +298,7 @@ namespace Sandbox.Game.Weapons
             ResourceSink.Update();
 
             base.UpdateAfterSimulation100();
-            m_drillBase.UpdateAfterSimulation100();
+            m_drillBase.UpdateSoundEmitter();
 
             if (Sync.IsServer && IsFunctional && m_useConveyorSystem && this.GetInventory().GetItems().Count > 0)
             {
@@ -290,6 +308,7 @@ namespace Sandbox.Game.Weapons
 
         public override void UpdateBeforeSimulation10()
         {
+            Receiver_IsPoweredChanged();
             base.UpdateBeforeSimulation10();
 
             Debug.Assert(WantsToDrill || Enabled);
@@ -329,6 +348,9 @@ namespace Sandbox.Game.Weapons
                     ApplyShakeForce();
                 }
 
+                if (WantsToDrill)
+                    CheckDustEffect();
+
                 float timeDelta = (MySandboxGame.TotalGamePlayTimeInMilliseconds - m_headLastUpdateTime) / 1000f;
                 float rotationDeltaAngle = timeDelta * m_drillBase.AnimationMaxSpeedRatio * HEAD_MAX_ROTATION_SPEED;
 
@@ -345,6 +367,31 @@ namespace Sandbox.Game.Weapons
             }
         }
 
+        private void CheckDustEffect()
+        {
+            Vector3D pt = Vector3D.Zero;
+            float bestDist = float.MaxValue;
+            float dist;
+            foreach (var entry in m_drillBase.Sensor.EntitiesInRange)
+            {
+                pt = entry.Value.DetectionPoint;
+                dist = Vector3.DistanceSquared(entry.Value.DetectionPoint, m_drillBase.Sensor.Center);
+                if (entry.Value.Entity is MyVoxelBase)
+                {
+                    if (dist < bestDist)
+                    {
+                        pt = entry.Value.DetectionPoint;
+                        bestDist = dist;
+                    }
+                }
+            }
+            if (m_drillBase.DustParticles != null)
+            {
+                if (!m_drillBase.DustParticles.IsEmittingStopped && bestDist != float.MaxValue)
+                    m_drillBase.DustParticles.WorldMatrix = MatrixD.CreateWorld((pt + m_drillBase.Sensor.Center) / 2f, PositionComp.WorldMatrix.Forward, PositionComp.WorldMatrix.Up);
+            }
+        }
+
         private bool HasObjectInDrillingRange()
         {
             float distSq = MyDrillConstants.DRILL_SHIP_REAL_LENGTH * MyDrillConstants.DRILL_SHIP_REAL_LENGTH;
@@ -352,8 +399,6 @@ namespace Sandbox.Game.Weapons
             
             foreach (var entry in m_drillBase.Sensor.EntitiesInRange)
             {
-                const float sparksMoveDist = 0.1f;
-
                 var pt = entry.Value.DetectionPoint;
                 if (Vector3.DistanceSquared(pt, origin) < distSq)
                 {
@@ -370,7 +415,7 @@ namespace Sandbox.Game.Weapons
             DetailedInfo.Append(BlockDefinition.DisplayNameText);
             DetailedInfo.AppendFormat("\n");
             DetailedInfo.AppendStringBuilder(MyTexts.Get(MySpaceTexts.BlockPropertiesText_MaxRequiredInput));
-            MyValueFormatter.AppendWorkInBestUnit(ResourceSink.MaxRequiredInput, DetailedInfo);
+            MyValueFormatter.AppendWorkInBestUnit(ResourceSink.MaxRequiredInputByType(MyResourceDistributorComponent.ElectricityId), DetailedInfo);
             DetailedInfo.AppendFormat("\n");
 
             RaisePropertiesChanged();
@@ -479,7 +524,7 @@ namespace Sandbox.Game.Weapons
 
         private float ComputeRequiredPower()
         {
-            return (IsFunctional && (Enabled || WantsToDrill)) ? ResourceSink.MaxRequiredInput : 0f;
+            return (IsFunctional && (Enabled || WantsToDrill)) ? ResourceSink.MaxRequiredInputByType(MyResourceDistributorComponent.ElectricityId) : 0f;
         }
 
         public bool UseConveyorSystem
@@ -586,12 +631,18 @@ namespace Sandbox.Game.Weapons
 
                 if (ResourceSink != null)
                 {
-                    ResourceSink.MaxRequiredInput = ComputeMaxRequiredPower() * m_powerConsumptionMultiplier;
+                    ResourceSink.SetMaxRequiredInputByType(MyResourceDistributorComponent.ElectricityId, ComputeMaxRequiredPower() * m_powerConsumptionMultiplier);
                     ResourceSink.Update();
 
                     UpdateDetailedInfo();
                 }
             }
+        }
+
+        public void UpdateSoundEmitter()
+        {
+            if (m_soundEmitter != null)
+                m_soundEmitter.Update();
         }
 
         #region IMyConveyorEndpointBlock implementation

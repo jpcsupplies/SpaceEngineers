@@ -27,6 +27,8 @@ namespace Sandbox.Game.Entities
         private MyControllerInfo m_info = new MyControllerInfo();
         public MyControllerInfo ControllerInfo { get { return m_info; } }
 
+        private MyToolbar m_toolbar;
+
         #endregion
 
         #region Init
@@ -35,6 +37,8 @@ namespace Sandbox.Game.Entities
         {
             ControllerInfo.ControlAcquired += OnControlAcquired;
             ControllerInfo.ControlReleased += OnControlReleased;
+
+            m_toolbar = new MyToolbar(ToolbarType);
         }
 
         public void Init()
@@ -51,6 +55,7 @@ namespace Sandbox.Game.Entities
 
             Render.SkipIfTooSmall = false;
             Save = false;
+
 
         }
         #endregion
@@ -398,11 +403,6 @@ namespace Sandbox.Game.Entities
 
         }
 
-        void IMyControllableEntity.Teleport(Vector3D pos)
-        {
-
-        }
-
         public float HeadLocalXAngle { get; set; }
         public float HeadLocalYAngle { get; set; }
 
@@ -411,6 +411,14 @@ namespace Sandbox.Game.Entities
             get
             {
                 return MyToolbarType.Spectator;
+            }
+        }
+
+        public MyToolbar Toolbar
+        {
+            get
+            {
+                return m_toolbar;
             }
         }
 

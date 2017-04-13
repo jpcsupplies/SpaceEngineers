@@ -11,7 +11,7 @@ namespace VRage.Groups
         where TGroupData : IGroupData<TNode>, new()
         where TNode : class
 	{
-#if BLIT
+#if XB1
 		// Internal members starting with 'm_' are for internal use only, there's no friends in c#
         public class Node
         {
@@ -42,6 +42,16 @@ namespace VRage.Groups
             public DictionaryValuesReader<long, Node> Children
             {
                 get { return new DictionaryValuesReader<long, Node>(m_children); }
+            }
+
+            public DictionaryReader<long, Node> ChildLinks
+            {
+                get { return new DictionaryReader<long, Node>(m_children); }
+            }
+
+            public DictionaryReader<long, Node> ParentLinks
+            {
+                get { return new DictionaryReader<long, Node>(m_parents); }
             }
 
             public override string ToString()
@@ -255,8 +265,7 @@ namespace VRage.Groups
                 Debug.Assert(childNode == null || child.m_node == childNode, "Invalid request, linkId does not match child");
                 Debug.Assert(parent.m_group == child.m_group, "Parent and child is in different group, inconsistency!");
 
-                BreakLinkInternal(linkId, parent, child);
-                return true;
+                return BreakLinkInternal(linkId, parent, child);
             }
             return false;
         }
@@ -289,11 +298,19 @@ namespace VRage.Groups
             return false;
         }
 
-        private void BreakLinkInternal(long linkId, Node parent, Node child)
+        private bool BreakLinkInternal(long linkId, Node parent, Node child)
         {
-            parent.m_children.Remove(linkId); // Remove link parent-child
-            child.m_parents.Remove(linkId); // Remove link child-parent
+            DebugCheckConsistency(linkId,parent,child);
+            bool removed = parent.m_children.Remove(linkId); // Remove link parent-child
+            removed &= child.m_parents.Remove(linkId); // Remove link child-parent
             RecalculateConnectivity(parent, child);
+            return removed;
+        }
+
+        [Conditional("DEBUG")]
+        private void DebugCheckConsistency(long linkId, Node parent, Node child)
+        {
+            Debug.Assert(parent.m_children.ContainsKey(linkId) == child.m_parents.ContainsKey(linkId));
         }
 
         private void AddNeighbours(HashSet<Node> nodes, Node nodeToAdd)
@@ -318,7 +335,7 @@ namespace VRage.Groups
         private bool TryReleaseNode(Node node)
         {
             // Node is completely disconnected
-            if (node.m_children.Count == 0 && node.m_parents.Count == 0)
+            if (node.m_node != null && node.m_group != null && node.m_children.Count == 0 && node.m_parents.Count == 0)
             {
                 var group = node.m_group;
 

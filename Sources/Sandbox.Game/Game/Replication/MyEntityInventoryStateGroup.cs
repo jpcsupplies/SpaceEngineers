@@ -67,9 +67,6 @@ namespace Sandbox.Game.Replication
 
         const int RECIEVED_PACKET_HISTORY = 256;
 
-        //inventory has bigger priority than physics
-        const float INVENTORY_PRIORITY_RAMP = 1000.0f;
-
         public StateGroupEnum GroupType { get { return StateGroupEnum.Inventory; } }
 
 
@@ -156,7 +153,7 @@ namespace Sandbox.Game.Replication
 
             if (clientData.FailedIncompletePackets.Count  > 0)
             {
-                return 1.0f * INVENTORY_PRIORITY_RAMP * frameCountWithoutSync;
+                return 1.0f * frameCountWithoutSync;
             }
 
             MyClientState state = (MyClientState)client.State;
@@ -176,19 +173,19 @@ namespace Sandbox.Game.Replication
 
                 if (player != null && player.Id.SteamId == client.EndpointId.Value)
                 {
-                    return 1.0f * INVENTORY_PRIORITY_RAMP * frameCountWithoutSync;
+                    return 1.0f * frameCountWithoutSync;
                 }
             }
 
             if (state.ContextEntity is MyCharacter && state.ContextEntity == Inventory.Owner)
             {
-                return 1.0f * INVENTORY_PRIORITY_RAMP * frameCountWithoutSync;
+                return 1.0f * frameCountWithoutSync;
             }
           
-            if (state.Context == MyClientState.MyContextKind.Inventory ||
+            if (state.Context == MyClientState.MyContextKind.Inventory || state.Context == MyClientState.MyContextKind.Building ||
                 (state.Context == MyClientState.MyContextKind.Production && Inventory.Owner is MyAssembler))
             {
-                return GetPriorityStateGroup(client) * INVENTORY_PRIORITY_RAMP * frameCountWithoutSync;
+                return GetPriorityStateGroup(client) * frameCountWithoutSync;
             }
             return 0;
         }
@@ -702,6 +699,7 @@ namespace Sandbox.Game.Replication
                     foreach (var item in  packetInfo.NewItems)
                     {
                         MyPhysicalInventoryItem inventoryItem = item.Value;
+                        stream.WriteInt32(item.Key);
                         VRage.Serialization.MySerializer.Write(stream, ref inventoryItem, MyObjectBuilderSerializer.Dynamic);
 
                         if (stream.BitPosition <= maxBitPosition)
@@ -855,17 +853,20 @@ namespace Sandbox.Game.Replication
         {
             if (!VRage.Game.MyFinalBuildConstants.IS_OFFICIAL)
                 Console.WriteLine(String.Format("delivery: {0}, {1}", packetId, delivered));
-            InventoryClientData clientData = m_clientInventoryUpdate[forClient.EndpointId.Value];
-            InventoryDeltaInformation packetInfo;
-            if (clientData.SendPackets.TryGetValue(packetId, out packetInfo))
+            InventoryClientData clientData;
+            if (m_clientInventoryUpdate.TryGetValue(forClient.EndpointId.Value, out clientData))
             {
-                if (delivered == false)
+                InventoryDeltaInformation packetInfo;
+                if (clientData.SendPackets.TryGetValue(packetId, out packetInfo))
                 {
+                    if (delivered == false)
+                    {
 
-                    clientData.FailedIncompletePackets.Add(packetInfo);
+                        clientData.FailedIncompletePackets.Add(packetInfo);
+                    }
+
+                    clientData.SendPackets.Remove(packetId);
                 }
-
-                clientData.SendPackets.Remove(packetId);
             }
         }
 

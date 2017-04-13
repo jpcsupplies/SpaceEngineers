@@ -1,4 +1,4 @@
-﻿#if !UNSHARPER
+﻿#if !XB1
 #region Using
 
 using SharpDX.DirectInput;
@@ -18,7 +18,9 @@ using VRage.Serialization;
 using VRage.Utils;
 using VRage.Win32;
 using VRageMath;
-
+using VRage.OpenVRWrapper;
+using VRage.Profiler;
+using VRageRender.ExternalApp;
 
 #endregion
 
@@ -52,7 +54,7 @@ namespace VRage.Input
         public bool IsScrollLock { get { return (((ushort)GetKeyState(0x91)) & 0xffff) != 0; } }
 
         //Added by Gregory in order to Override some update properties fot testing Tool
-        public bool OverrideUpdate = false;
+        internal bool OverrideUpdate = false;
 
         Vector2 m_absoluteMousePosition;
 
@@ -118,8 +120,9 @@ namespace VRage.Input
         Dictionary<MyStringId, MyControl> m_defaultGameControlsList;
         Dictionary<MyStringId, MyControl> m_gameControlsList = new Dictionary<MyStringId, MyControl>(MyStringId.Comparer);
         Dictionary<MyStringId, MyControl> m_gameControlsSnapshot = new Dictionary<MyStringId, MyControl>(MyStringId.Comparer);
+        HashSet<MyStringId>               m_gameControlsBlacklist = new HashSet<MyStringId>();
 
-        //  Lists of valid keys and buttons
+            //  Lists of valid keys and buttons
         List<MyKeys> m_validKeyboardKeys = new List<MyKeys>();
         List<MyJoystickButtonsEnum> m_validJoystickButtons = new List<MyJoystickButtonsEnum>();
         List<MyJoystickAxesEnum> m_validJoystickAxes = new List<MyJoystickAxesEnum>();
@@ -358,6 +361,7 @@ namespace VRage.Input
 
             LoadControls(controlsGeneral, controlsButtons);
             TakeSnapshot();
+            ClearBlacklist();
         }
 
         IntPtr m_windowHandle;
@@ -421,7 +425,7 @@ namespace VRage.Input
             for (int i = 0; i < devices.Count; i++)
             {
                 var device = devices[i];
-                results.Add(device.InstanceName);
+                results.Add(device.InstanceName.Replace("\0",string.Empty));
             }
             return results;
         }
@@ -446,7 +450,7 @@ namespace VRage.Input
                 var attachedDevices = MyDirectInput.DirectInput.GetDevices(DeviceClass.GameControl, DeviceEnumerationFlags.AttachedOnly);
                 foreach (var device in attachedDevices)
                 {
-                    if (device.InstanceName != m_joystickInstanceName)
+                    if (!device.InstanceName.Contains(m_joystickInstanceName))
                         continue;
 
                     try
@@ -540,15 +544,16 @@ namespace VRage.Input
             MyMessageLoop.RemoveMessageHandler(VRage.Win32.WinApi.WM.DEVICECHANGE, DeviceChangeCallback);
         }
 
-        public void ClearStates()
+        internal void ClearStates()
         {
             m_keyboardState.ClearStates();
             m_previousMouseState = m_actualMouseState;
             m_actualMouseState = new MyMouseState();
             m_actualMouseStateRaw.ClearPosition();
+            MyOpenVR.ClearButtonStates();
         }
 
-        public void UpdateStatesFromPlayback(MyKeyboardState currentKeyboard, MyKeyboardState previousKeyboard, MyMouseState currentMouse, MyMouseState previousMouse, JoystickState currentJoystick, JoystickState previousJoystick, int x, int y)
+        internal void UpdateStatesFromPlayback(MyKeyboardState currentKeyboard, MyKeyboardState previousKeyboard, MyMouseState currentMouse, MyMouseState previousMouse, JoystickState currentJoystick, JoystickState previousJoystick, int x, int y)
         {
             m_keyboardState.UpdateStatesFromSnapshot(currentKeyboard,previousKeyboard);
             m_previousMouseState = previousMouse;
@@ -562,7 +567,7 @@ namespace VRage.Input
             }
         }
 
-        public void UpdateStates()
+        internal void UpdateStates()
         {
             ProfilerShort.Begin("MyDirectXInput::UpdateStates");
             m_previousMouseState = m_actualMouseState;
@@ -578,6 +583,9 @@ namespace VRage.Input
             int x, y;
             MyWindowsMouse.GetPosition(out x, out y);
             m_absoluteMousePosition = new Vector2(x, y);
+
+            MyOpenVR.ClearButtonStates();
+            MyOpenVR.PollEvents();//if this crashes because of some strange error you don't know, maybe openvr_api.cs was updated and you should check VREvent_Keyboard_t definition there (or just comment it out from VREvent_Data_t :-/ )
 
             if (IsJoystickConnected())
             {
@@ -756,6 +764,9 @@ namespace VRage.Input
 
         public bool IsNewGameControlJoystickOnlyPressed(MyStringId controlId)
         {
+            // Do nothing for blocked controls.
+            if (IsControlBlocked(controlId)) return false;
+
             MyControl gameControl;
             if (m_gameControlsList.TryGetValue(controlId, out gameControl))
             {
@@ -769,6 +780,9 @@ namespace VRage.Input
 
         public bool IsGameControlJoystickOnlyPressed(MyStringId controlId)
         {
+            // Do nothing for blocked controls.
+            if (IsControlBlocked(controlId)) return false;
+
             MyControl gameControl;
             if (m_gameControlsList.TryGetValue(controlId, out gameControl))
             {
@@ -782,6 +796,9 @@ namespace VRage.Input
 
         public bool IsNewGameControlJoystickOnlyReleased(MyStringId controlId)
         {
+            // Do nothing for blocked controls.
+            if (IsControlBlocked(controlId)) return false;
+
             MyControl gameControl;
             if (m_gameControlsList.TryGetValue(controlId, out gameControl))
             {
@@ -918,7 +935,7 @@ namespace VRage.Input
         //True if any ALT key is pressed
         public bool IsAnyAltKeyPressed()
         {
-            return IsKeyPress(MyKeys.LeftAlt) || IsKeyPress(MyKeys.RightAlt);
+            return IsKeyPress(MyKeys.Alt) || IsKeyPress(MyKeys.LeftAlt) || IsKeyPress(MyKeys.RightAlt);
         }
 
         //True if any CTRL key is pressed
@@ -2014,6 +2031,8 @@ namespace VRage.Input
         //  Check if an assigned control for game is new pressed.
         public bool IsNewGameControlPressed(MyStringId controlId)
         {
+            // Do nothing for blocked controls.
+            if (IsControlBlocked(controlId)) return false;
             //  If you are trying to set a control that does not exist do nothing.
             MyControl control;
             if (m_gameControlsList.TryGetValue(controlId, out control))
@@ -2026,6 +2045,8 @@ namespace VRage.Input
         //  Check if an assigned control for game is currently pressed.
         public bool IsGameControlPressed(MyStringId controlId)
         {
+            // Do nothing for blocked controls.
+            if(IsControlBlocked(controlId)) return false;
             //  If you are trying to set a control that does not exist do nothing.
             MyControl control;
             if (m_gameControlsList.TryGetValue(controlId, out control))
@@ -2037,6 +2058,8 @@ namespace VRage.Input
         //  Check if an assigned control for game is new pressed.
         public bool IsNewGameControlReleased(MyStringId controlId)
         {
+            // Do nothing for blocked controls.
+            if (IsControlBlocked(controlId)) return false;
             //  If you are trying to set a control that does not exist do nothing.
             MyControl control;
             if (m_gameControlsList.TryGetValue(controlId, out control))
@@ -2048,6 +2071,8 @@ namespace VRage.Input
         //  Check if an assigned control for game is currently pressed.
         public float GetGameControlAnalogState(MyStringId controlId)
         {
+            // Do nothing for blocked controls.
+            if (IsControlBlocked(controlId)) return 0f;
             //  If you are trying to set a control that does not exist do nothing.
             MyControl control;
             if (m_gameControlsList.TryGetValue(controlId, out control))
@@ -2059,6 +2084,8 @@ namespace VRage.Input
         //  Check is an assigned game control is released
         public bool IsGameControlReleased(MyStringId controlId)
         {
+            // Do nothing for blocked controls.
+            if (IsControlBlocked(controlId)) return false;
             //  If you are trying to set a control that does not exist do nothing.
             MyControl control;
             if (m_gameControlsList.TryGetValue(controlId, out control))
@@ -2450,6 +2477,28 @@ namespace VRage.Input
         public string GetUnassignedName()
         {
             return m_nameLookup.UnassignedText;
+        }
+
+        public void SetControlBlock(MyStringId controlEnum, bool block = false)
+        {
+            if (block)
+            {
+                m_gameControlsBlacklist.Add(controlEnum);
+            }
+            else
+            {
+                m_gameControlsBlacklist.Remove(controlEnum);
+            }
+        }
+
+        public bool IsControlBlocked(MyStringId controlEnum)
+        {
+            return m_gameControlsBlacklist.Contains(controlEnum);
+        }
+
+        public void ClearBlacklist()
+        {
+            m_gameControlsBlacklist.Clear();
         }
     }
 }

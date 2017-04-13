@@ -149,7 +149,7 @@ namespace Sandbox.Game.Utils
             Static = null;
         }
 
-		public bool TryCreateCollisionEffect(MyStringId type, Vector3 position, Vector3 normal, MyStringHash material1, MyStringHash material2)
+		public bool TryCreateCollisionEffect(MyStringId type, Vector3D position, Vector3 normal, MyStringHash material1, MyStringHash material2)
 		{
             var effectName = GetCollisionEffect(type, material1, material2);
             if (effectName != null)
@@ -158,7 +158,6 @@ namespace Sandbox.Game.Utils
                 if (MyParticlesManager.TryCreateParticleEffect(effectName, out effect))
 				{
                     effect.WorldMatrix = MatrixD.CreateWorld(position, normal, Vector3.CalculatePerpendicularVector(normal));
-					effect.AutoDelete = true;
 				    return true;
 				}
 			}

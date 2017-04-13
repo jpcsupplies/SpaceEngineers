@@ -21,12 +21,13 @@ using VRage.Game;
 using VRage.ModAPI;
 using VRage.Network;
 using VRage.Serialization;
+using VRage.Sync;
 using VRageMath;
 
 namespace SpaceEngineers.Game.Entities.Blocks
 {
     [MyCubeBlockType(typeof(MyObjectBuilder_ButtonPanel))]
-    internal class MyButtonPanel : MyFunctionalBlock, IMyButtonPanel
+    public class MyButtonPanel : MyFunctionalBlock, IMyButtonPanel
     {
         private const string DETECTOR_NAME = "panel";
         private List<string> m_emissiveNames; // new string[] { "Emissive1", "Emissive2", "Emissive3", "Emissive4", "Emissive5", "Emissive6", "Emissive7", "Emissive8" };
@@ -54,14 +55,22 @@ namespace SpaceEngineers.Game.Entities.Blocks
         List<MyUseObjectPanelButton> m_buttonsUseObjects = new List<MyUseObjectPanelButton>();
         StringBuilder m_emptyName = new StringBuilder("");
 
-        Vector3D m_previusPosition = Vector3D.Zero;
-
         bool m_syncing = false;
 
-        static MyButtonPanel()
+        public MyButtonPanel()
         {
+#if XB1 // XB1_SYNC_NOREFLECTION
+            m_anyoneCanUse = SyncType.CreateAndAddProp<bool>();
+#endif // XB1
+            CreateTerminalControls();
             m_openedToolbars = new List<MyToolbar>();
+        }
 
+        protected override void CreateTerminalControls()
+        {
+            if (MyTerminalControlFactory.AreControlsCreated<MyButtonPanel>())
+                return;
+            base.CreateTerminalControls();
             var checkAccess = new MyTerminalControlCheckbox<MyButtonPanel>("AnyoneCanUse", MySpaceTexts.BlockPropertyText_AnyoneCanUse, MySpaceTexts.BlockPropertyDescription_AnyoneCanUse);
             checkAccess.Getter = (x) => x.AnyoneCanUse;
             checkAccess.Setter = (x, v) => x.AnyoneCanUse = v;
@@ -148,7 +157,7 @@ namespace SpaceEngineers.Game.Entities.Blocks
                 m_customButtonNames = ob.CustomButtonNames;
             }
 
-            NeedsUpdate |= MyEntityUpdateEnum.BEFORE_NEXT_FRAME | MyEntityUpdateEnum.EACH_FRAME;
+            NeedsUpdate |= MyEntityUpdateEnum.BEFORE_NEXT_FRAME;
 
             UseObjectsComponent.GetInteractiveObjects<MyUseObjectPanelButton>(m_buttonsUseObjects);
         }
@@ -374,20 +383,6 @@ namespace SpaceEngineers.Game.Entities.Blocks
             return item;
         }
 
-        public override void UpdateAfterSimulation()
-        {
-            base.UpdateAfterSimulation();
-            if (m_previusPosition != PositionComp.GetPosition())
-            {
-                m_previusPosition = PositionComp.GetPosition();
-                foreach (var button in m_buttonsUseObjects)
-                {
-                    button.UpdateMarkerPosition();
-                }
-            }
-            
-        }
-
         [Event, Reliable, Server, Broadcast]
         void SendToolbarItemChanged(ToolbarItem sentItem, int index)
         {
@@ -399,6 +394,16 @@ namespace SpaceEngineers.Game.Entities.Blocks
             }
             Toolbar.SetItemAtIndex(index, item);
             m_syncing = false;
+        }
+
+        protected override void WorldPositionChanged(object source)
+        {
+            base.WorldPositionChanged(source);
+
+            foreach (var button in m_buttonsUseObjects)
+            {
+                button.UpdateMarkerPosition();
+            }
         }
     }
 }

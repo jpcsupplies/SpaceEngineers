@@ -20,7 +20,7 @@ using Sandbox.Game.Screens.Helpers;
 using Sandbox.Game.World;
 using Sandbox.Graphics.GUI;
 using Sandbox.ModAPI.Ingame;
-using SpaceEngineers.Game.ModAPI.Ingame;
+using SpaceEngineers.Game.ModAPI;
 using VRage;
 using VRage.Game;
 using VRage.Game.Components;
@@ -28,15 +28,17 @@ using VRage.Game.ObjectBuilders.Definitions;
 using VRage.Import;
 using VRage.ModAPI;
 using VRage.Network;
+using VRage.Sync;
 using VRage.Utils;
 using VRageMath;
+using VRageRender.Import;
 
 namespace SpaceEngineers.Game.Entities.Blocks
 {
     [MyCubeBlockType(typeof(MyObjectBuilder_AirVent))]
-    class MyAirVent : MyFunctionalBlock, IMyAirVent, IMyGasBlock
+    public class MyAirVent : MyFunctionalBlock, IMyAirVent, IMyGasBlock
     {
-        private static readonly string[] m_emissiveNames = { "Emissive1", "Emissive2", "Emissive3", "Emissive4" };
+        private static readonly string[] m_emissiveNames = { "Emissive0", "Emissive1", "Emissive2", "Emissive3" };
 
         MyModelDummy VentDummy
         {
@@ -72,7 +74,7 @@ namespace SpaceEngineers.Game.Entities.Blocks
         private bool? m_wasRoomEmpty;
         private readonly MyDefinitionId m_oxygenGasId = new MyDefinitionId(typeof (MyObjectBuilder_GasProperties), "Oxygen");
 
-        public bool CanVent { get { return (MySession.Static.Settings.EnableOxygen) && ResourceSink.IsPoweredByType(MyResourceDistributorComponent.ElectricityId) && IsWorking; } }
+        public bool CanVent { get { return (MySession.Static.Settings.EnableOxygen && MySession.Static.Settings.EnableOxygenPressurization) && ResourceSink.IsPoweredByType(MyResourceDistributorComponent.ElectricityId) && IsWorking; } }
         public bool CanVentToRoom { get { return CanVent && !IsDepressurizing; } }
         public bool CanVentFromRoom { get { return CanVent && IsDepressurizing; } }
 
@@ -101,11 +103,27 @@ namespace SpaceEngineers.Game.Entities.Blocks
         bool m_syncing = false;
 
         #region Initialization
-        static MyAirVent()
+
+        public MyAirVent()
         {
+#if XB1 // XB1_SYNC_NOREFLECTION
+            m_isDepressurizing = SyncType.CreateAndAddProp<bool>();
+#endif // XB1
+            CreateTerminalControls();
+
+            ResourceSink = new MyResourceSinkComponent(2);
+            SourceComp = new MyResourceSourceComponent();
+            m_isDepressurizing.ValueChanged += (x) => SetDepressurizing();
+        }
+
+        protected override void CreateTerminalControls()
+        {
+            if (MyTerminalControlFactory.AreControlsCreated<MyAirVent>())
+                return;
+            base.CreateTerminalControls();
             var isDepressurizing = new MyTerminalControlOnOffSwitch<MyAirVent>("Depressurize", MySpaceTexts.BlockPropertyTitle_Depressurize, MySpaceTexts.BlockPropertyDescription_Depressurize);
             isDepressurizing.Getter = (x) => x.IsDepressurizing;
-            isDepressurizing.Setter = (x, v) => x.IsDepressurizing = v;
+            isDepressurizing.Setter = (x, v) => { x.IsDepressurizing = v; x.UpdateEmissivity(); };
             isDepressurizing.EnableToggleAction();
             isDepressurizing.EnableOnOffActions();
             MyTerminalControlFactory.AddControl(isDepressurizing);
@@ -140,14 +158,6 @@ namespace SpaceEngineers.Game.Entities.Blocks
                 });
             toolbarButton.SupportsMultipleBlocks = false;
             MyTerminalControlFactory.AddControl(toolbarButton);
-        }
-
-        public MyAirVent()
-        {
-            ResourceSink = new MyResourceSinkComponent(2);
-            SourceComp = new MyResourceSourceComponent();
-
-            m_isDepressurizing.ValueChanged += (x) => SetDepressurizing();
         }
 
         public override void Init(MyObjectBuilder_CubeBlock objectBuilder, MyCubeGrid cubeGrid)
@@ -190,7 +200,7 @@ namespace SpaceEngineers.Game.Entities.Blocks
                 m_onEmptyAction = MyToolbarItemFactory.CreateToolbarItem(builder.OnEmptyAction);
 
             UpdateEmissivity();
-            UdpateTexts();
+            UpdateTexts();
 
             AddDebugRenderComponent(new Sandbox.Game.Components.MyDebugRenderComponentDrawConveyorEndpoint(m_conveyorEndpoint));
 
@@ -260,7 +270,7 @@ namespace SpaceEngineers.Game.Entities.Blocks
 
             ResourceSink.Update();
 
-            UdpateTexts();
+            UpdateTexts();
             UpdateEmissivity();
 
             if (MyFakes.ENABLE_OXYGEN_SOUNDS)
@@ -355,7 +365,6 @@ namespace SpaceEngineers.Game.Entities.Blocks
                 orientation.Translation = CubeGrid.GridIntegerToWorld(Position + mat.Forward / 4f);
 
                 m_effect.WorldMatrix = orientation;
-                m_effect.AutoDelete = false;
 
                 m_effect.UserScale = 3f;
             }
@@ -420,7 +429,7 @@ namespace SpaceEngineers.Game.Entities.Blocks
 
         private float ComputeRequiredPower()
         {
-            if (!MySession.Static.Settings.EnableOxygen && Enabled && IsFunctional)
+            if (!MySession.Static.Settings.EnableOxygen && Enabled && IsFunctional && !MySession.Static.Settings.EnableOxygenPressurization)
                 return 0f;
 
             return m_isProducing ? BlockDefinition.OperationalPowerConsumption : BlockDefinition.StandbyPowerConsumption;
@@ -557,19 +566,19 @@ namespace SpaceEngineers.Game.Entities.Blocks
             ResourceSink.Update();
         }
 
-        void UdpateTexts()
+        void UpdateTexts()
         {
             DetailedInfo.Clear();
             DetailedInfo.AppendStringBuilder(MyTexts.Get(MyCommonTexts.BlockPropertiesText_Type));
             DetailedInfo.Append(BlockDefinition.DisplayNameText);
             DetailedInfo.Append("\n");
             DetailedInfo.AppendStringBuilder(MyTexts.Get(MySpaceTexts.BlockPropertiesText_MaxRequiredInput));
-			MyValueFormatter.AppendWorkInBestUnit(ResourceSink.MaxRequiredInput, DetailedInfo);
+            MyValueFormatter.AppendWorkInBestUnit(ResourceSink.MaxRequiredInputByType(MyResourceDistributorComponent.ElectricityId), DetailedInfo);
             DetailedInfo.Append("\n");
 
-            if (!MySession.Static.Settings.EnableOxygen)
+            if (!MySession.Static.Settings.EnableOxygen || !MySession.Static.Settings.EnableOxygenPressurization)
             {
-                DetailedInfo.Append("Oxygen disabled in world settigns!");
+                DetailedInfo.Append("Oxygen disabled in world settings!");
             }
             else
             {
@@ -616,7 +625,7 @@ namespace SpaceEngineers.Game.Entities.Blocks
         #region Venting
         private MyOxygenBlock GetOxygenBlock()
         {
-            if (!MySession.Static.Settings.EnableOxygen || VentDummy == null)
+            if (!MySession.Static.Settings.EnableOxygen || !MySession.Static.Settings.EnableOxygenPressurization || VentDummy == null)
             {
                 return new MyOxygenBlock();
             }

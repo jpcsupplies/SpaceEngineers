@@ -32,7 +32,6 @@ using VRage.Serialization;
 using Sandbox.Game.Replication;
 using Sandbox.Common;
 using Sandbox.Engine.Utils;
-using VRage.Library.Sync;
 using VRage.Game.Entity;
 using Sandbox.Game.EntityComponents;
 using VRage.Game;
@@ -40,6 +39,9 @@ using VRage.Game.ModAPI.Ingame;
 using Sandbox.Game.Entities.Interfaces;
 using Sandbox.Game.GUI;
 using Sandbox.Game.SessionComponents;
+using VRage.Audio;
+using VRage.Sync;
+using IMyEntity = VRage.ModAPI.IMyEntity;
 
 #endregion
 
@@ -147,7 +149,13 @@ namespace Sandbox.Game
             m_maxMass = maxMass;
             m_flags = flags;
 
+#if !XB1 // !XB1_SYNC_NOREFLECTION
             SyncType = SyncHelpers.Compose(this);
+#else // XB1
+            SyncType = new SyncType(new List<SyncBase>());
+            m_currentVolume = SyncType.CreateAndAddProp<MyFixedPoint>();
+            m_currentMass = SyncType.CreateAndAddProp<MyFixedPoint>();
+#endif // XB1
             m_currentVolume.ValueChanged += (x) => PropertiesChanged();
             m_currentVolume.ValidateNever();
 
@@ -163,6 +171,7 @@ namespace Sandbox.Game
             : this(definition.InventoryVolume, definition.InventoryMass, new Vector3(definition.InventorySizeX, definition.InventorySizeY, definition.InventorySizeZ), flags)
         {
             myObjectBuilder_InventoryDefinition = definition;
+
         }
 
         #endregion
@@ -196,7 +205,7 @@ namespace Sandbox.Game
                 if (!MyPerGameSettings.ConstrainInventory()) return int.MaxValue;
                 if (!m_multiplierEnabled) return m_maxItemCount;
 
-                long itemCount = (long)(m_maxItemCount * (double)MySession.Static.InventoryMultiplier);
+                long itemCount = Math.Max(1, (long)(m_maxItemCount * (double)MySession.Static.InventoryMultiplier));
                 if (itemCount > (long)int.MaxValue) itemCount = (long)int.MaxValue;
                 return (int)itemCount;
             }
@@ -383,20 +392,17 @@ namespace Sandbox.Game
         {
             MyFixedPoint sum = 0;
             MyFixedPoint max = adapter.MaxStackAmount;
-            for (int i = 0; i < MaxItemCount; ++i)
+            for (int i = 0; i < m_items.Count; ++i)
             {
-                if (i < m_items.Count)
+                if (m_items[i].Content.CanStack(contentId.TypeId, contentId.SubtypeId, MyItemFlags.None))
                 {
-                    if (m_items[i].Content.CanStack(contentId.TypeId, contentId.SubtypeId, MyItemFlags.None))
-                    {
-                        sum = MyFixedPoint.AddSafe(sum, max - m_items[i].Amount);
-                    }
-                }
-                else
-                {
-                    sum = MyFixedPoint.AddSafe(sum, max);
+                    sum = MyFixedPoint.AddSafe(sum, max - m_items[i].Amount);
                 }
             }
+
+            var diff = MaxItemCount - m_items.Count;
+            if (diff > 0)
+                sum = MyFixedPoint.AddSafe(sum, max * diff);
 
             return sum;
         }
@@ -664,6 +670,17 @@ namespace Sandbox.Game
                     if (amount >= obj.Item.Amount)
                     {
                         MyFloatingObjects.RemoveFloatingObject(obj, true);
+
+                        // Visual Scripting event Implementation
+                        if(MyVisualScriptLogicProvider.PlayerPickedUp != null)
+                        {
+                            var character = Owner as MyCharacter;
+                            if(character != null)
+                            {
+                                var playerId = character.ControllerInfo.ControllingIdentityId;
+                                MyVisualScriptLogicProvider.PlayerPickedUp(obj.ItemDefinition.Id.TypeId.ToString(), obj.ItemDefinition.Id.SubtypeName, obj.Name, playerId, amount.ToIntSafe());
+                            }
+                        }
                     }
                     else
                     {
@@ -837,9 +854,14 @@ namespace Sandbox.Game
 
             if (index >= 0 && index < m_items.Count)
             {
-                MyPhysicalInventoryItem prevItem = m_items[index];
+                //GR: Shift items not add to last position. Slower but more consistent with game logic
+                m_items.Add(m_items[m_items.Count - 1]);
+                for (int i = m_items.Count - 3; i >= index; i--)
+                {
+                    m_items[i+1] = m_items[i];
+                }
                 m_items[index] = newItem;
-                m_items.Add(prevItem);
+                
             }
             else
             {
@@ -1210,6 +1232,9 @@ namespace Sandbox.Game
         //this is from client only
         public static void TransferByUser(MyInventory src, MyInventory dst, uint srcItemId, int dstIdx = -1, MyFixedPoint? amount = null)
         {
+            // CH: TODO: Remove if date > 15.5.2016 :-) It's only to catch a nullref
+            if (dst.Owner == null) MyLog.Default.WriteLine("dst.Owner == null");
+
             if (src == null)
             {
                 return;
@@ -1220,6 +1245,10 @@ namespace Sandbox.Game
                 return;
 
             var item = itemNullable.Value;
+            
+            // CH: TODO: Remove if date > 15.5.2016 :-) It's only to catch a nullref
+            if (item.Content == null) MyLog.Default.WriteLine("item.Content == null");
+
             if (dst != null && !dst.CheckConstraint(item.Content.GetObjectId()))
                 return;
 
@@ -1232,6 +1261,12 @@ namespace Sandbox.Game
             }
 
             //TransferItemsInternal(src, dst, srcItemId, false, dstIdx, transferAmount);
+
+            // CH: TODO: Remove if date > 15.5.2016 :-) It's only to catch a nullref
+            for (int i = 0; i < dst.Owner.InventoryCount; i++)
+            {
+                if (dst.Owner.GetInventory(i) == null) MyLog.Default.WriteLine("dst.Owner.GetInventory(i) == null");
+            }
 
             byte inventoryIndex = 0;
             for (byte i = 0; i < dst.Owner.InventoryCount; i++)
@@ -1670,6 +1705,7 @@ namespace Sandbox.Game
                 RemoveEntityOnEmpty = inventoryComponentDefinition.RemoveEntityOnEmpty;
                 m_multiplierEnabled = inventoryComponentDefinition.MultiplierEnabled;
                 m_maxItemCount = inventoryComponentDefinition.MaxItemCount;
+                Constraint = inventoryComponentDefinition.InputConstraint;
             }
         }
 
@@ -1706,7 +1742,7 @@ namespace Sandbox.Game
             containerDefinition.DeselectAll();
         }
 
-        public override MyObjectBuilder_ComponentBase Serialize()
+        public override MyObjectBuilder_ComponentBase Serialize(bool copy = false)
         {
             return GetObjectBuilder();
         }
@@ -1960,6 +1996,16 @@ namespace Sandbox.Game
         [Event, Reliable, Server]
         private void DropItem_Implementation(MyFixedPoint amount, uint itemIndex)
         {
+            if (MyVisualScriptLogicProvider.PlayerDropped != null)
+            {
+                var character = Owner as MyCharacter;
+                if (character != null)
+                {
+                    var item = GetItemByID(itemIndex);
+                    var playerId = character.ControllerInfo.ControllingIdentityId;
+                    MyVisualScriptLogicProvider.PlayerDropped(item.Value.Content.TypeId.ToString(), item.Value.Content.SubtypeName, playerId, amount.ToIntSafe());
+                }
+            }
             RemoveItems(itemIndex, amount, true, true);
         }
 
@@ -2300,6 +2346,11 @@ namespace Sandbox.Game
             {
                 m_maxVolume = (MyFixedPoint)newValue;
             }
+        }
+
+        public void ResetVolume()
+        {
+            m_maxVolume = MyFixedPoint.MaxValue;
         }
     }
 }

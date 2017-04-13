@@ -9,8 +9,8 @@ using Sandbox.Game.GameSystems;
 using Sandbox.Game.GameSystems.Conveyors;
 using Sandbox.Game.Localization;
 using Sandbox.Game.World;
-using Sandbox.ModAPI.Ingame;
-using SpaceEngineers.Game.ModAPI.Ingame;
+using Sandbox.ModAPI;
+using SpaceEngineers.Game.ModAPI;
 using VRage;
 using VRage.Game;
 using VRage.Game.Components;
@@ -23,7 +23,7 @@ using VRageRender;
 namespace SpaceEngineers.Game.Entities.Blocks
 {
     [MyCubeBlockType(typeof(MyObjectBuilder_OxygenFarm))]
-    class MyOxygenFarm : MyFunctionalBlock, IMyOxygenFarm, IMyGasBlock
+    public class MyOxygenFarm : MyFunctionalBlock, IMyOxygenFarm, IMyGasBlock
     {
         static readonly string[] m_emissiveNames = { "Emissive0", "Emissive1", "Emissive2", "Emissive3" };
 
@@ -34,7 +34,7 @@ namespace SpaceEngineers.Game.Entities.Blocks
         public MySolarGameLogicComponent SolarComponent { get; private set; }
 	    readonly MyDefinitionId m_oxygenGasId = new MyDefinitionId(typeof(MyObjectBuilder_GasProperties), "Oxygen");	// Required for oxygen MyFake checks
 
-        public bool CanProduce { get { return (MySession.Static.Settings.EnableOxygen || BlockDefinition.ProducedGas != m_oxygenGasId) && Enabled && ResourceSink.IsPowered && IsWorking && IsFunctional; } }
+        public bool CanProduce { get { return (MySession.Static.Settings.EnableOxygen || BlockDefinition.ProducedGas != m_oxygenGasId) && Enabled && ResourceSink.IsPoweredByType(MyResourceDistributorComponent.ElectricityId) && IsWorking && IsFunctional; } }
 
         private MyResourceSourceComponent m_sourceComp;
         public MyResourceSourceComponent SourceComp
@@ -144,7 +144,7 @@ namespace SpaceEngineers.Game.Entities.Blocks
             DetailedInfo.Append("\n");
 
             DetailedInfo.AppendStringBuilder(MyTexts.Get(MySpaceTexts.BlockPropertiesText_MaxRequiredInput));
-			MyValueFormatter.AppendWorkInBestUnit(ResourceSink.MaxRequiredInput, DetailedInfo);
+            MyValueFormatter.AppendWorkInBestUnit(ResourceSink.MaxRequiredInputByType(MyResourceDistributorComponent.ElectricityId), DetailedInfo);
             DetailedInfo.Append("\n");
 
             DetailedInfo.AppendStringBuilder(MyTexts.Get(MySpaceTexts.BlockPropertiesText_OxygenOutput));
@@ -174,15 +174,15 @@ namespace SpaceEngineers.Game.Entities.Blocks
                     if (i < m_maxGasOutputFactor * 4)
                         UpdateNamedEmissiveParts(Render.RenderObjectIDs[0], m_emissiveNames[i], Color.Green, 1);
                     else
-                        UpdateNamedEmissiveParts(Render.RenderObjectIDs[0], m_emissiveNames[i], Color.Black, 1);
+                        UpdateNamedEmissiveParts(Render.RenderObjectIDs[0], m_emissiveNames[i], Color.Black, 1); 
                 }
             }
             else
             {
-                UpdateNamedEmissiveParts(Render.RenderObjectIDs[0], m_emissiveNames[0], Color.Black, 0);
+               UpdateNamedEmissiveParts(Render.RenderObjectIDs[0], m_emissiveNames[0], Color.Red, 0); 
                 for (int i = 1; i < 4; i++)
                 {
-                    UpdateNamedEmissiveParts(Render.RenderObjectIDs[0], m_emissiveNames[i], Color.Black, 0);
+                    UpdateNamedEmissiveParts(Render.RenderObjectIDs[0], m_emissiveNames[i], Color.Red, 0); 
                 }
             }
         }
@@ -219,7 +219,7 @@ namespace SpaceEngineers.Game.Entities.Blocks
 
         bool IMyGasBlock.IsWorking()
         {
-			return MySession.Static.Settings.EnableOxygen && ResourceSink.IsPowered && IsWorking && IsFunctional;
+            return MySession.Static.Settings.EnableOxygen && ResourceSink.IsPoweredByType(MyResourceDistributorComponent.ElectricityId) && IsWorking && IsFunctional;
         }
 
         #region Conveyor
@@ -231,7 +231,7 @@ namespace SpaceEngineers.Game.Entities.Blocks
         }
         #endregion
 
-        float IMyOxygenFarm.GetOutput()
+        float ModAPI.Ingame.IMyOxygenFarm.GetOutput()
         {
 	        return !IsWorking ? 0f : SolarComponent.MaxOutput;
         }

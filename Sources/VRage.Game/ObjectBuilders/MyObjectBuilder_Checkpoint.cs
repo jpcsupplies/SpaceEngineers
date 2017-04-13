@@ -8,6 +8,7 @@ using System.Diagnostics;
 using System.Xml.Serialization;
 using VRage.ObjectBuilders;
 using VRage.Game.Definitions;
+using VRage.Game.ModAPI;
 using VRage.Library.Utils;
 
 
@@ -20,6 +21,8 @@ namespace VRage.Game
         ThirdPersonSpectator,
         SpectatorDelta,
         SpectatorFixed,
+        SpectatorOrbit,
+        SpectatorFreeMouse
     }
 
     [ProtoContract]
@@ -103,6 +106,8 @@ namespace VRage.Game
         [XmlElement("Settings", Type = typeof(MyAbstractXmlSerializer<MyObjectBuilder_SessionSettings>))]
         public MyObjectBuilder_SessionSettings Settings = MyObjectBuilderSerializer.CreateNewObject<MyObjectBuilder_SessionSettings>();
 
+        public MyObjectBuilder_ScriptManager ScriptManagerData;
+
         [ProtoMember]
         public int AppVersion = 0;
 
@@ -173,7 +178,7 @@ namespace VRage.Game
         public List<ModItem> Mods;
 
         [ProtoMember]
-        public List<ulong> PromotedUsers;
+        public SerializableDictionary<ulong, MyPromoteLevel> PromotedUsers;
 
         [ProtoMember]
         public SerializableDefinitionId Scenario = DEFAULT_SCENARIO;
@@ -227,12 +232,10 @@ namespace VRage.Game
         public SerializableDictionary<long, MyObjectBuilder_Gps> Gps;
 
         [ProtoMember]
-        public SerializableBoundingBoxD WorldBoundaries;
+        public SerializableBoundingBoxD? WorldBoundaries;
         public bool ShouldSerializeWorldBoundaries()
         {
-            // Prevent this from appearing in SE checkpoints.
-            return WorldBoundaries.Min != Vector3D.Zero ||
-                   WorldBoundaries.Max != Vector3D.Zero;
+            return WorldBoundaries.HasValue;
         }
 
         [ProtoMember]
@@ -267,8 +270,14 @@ namespace VRage.Game
         [ProtoMember]
         public string BriefingVideo;
 
+        public string CustomLoadingScreenImage;
+        public string CustomLoadingScreenText;
+        [ProtoMember]
+        public string CustomSkybox = "";
+
         [ProtoMember, DefaultValue(9)]
         public int RequiresDX = 9;
+
 
         #region obsolete
 

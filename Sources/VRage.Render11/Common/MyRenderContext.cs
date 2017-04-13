@@ -319,8 +319,39 @@ namespace VRageRender
         }
     }
 
+    class MyRenderContextAnnotation
+    {
+        SharpDX.Direct3D11.UserDefinedAnnotation m_annotation;
+
+        [Conditional("DEBUG")]
+        public void Init(DeviceContext context)
+        {
+            m_annotation = context.QueryInterface<SharpDX.Direct3D11.UserDefinedAnnotation>();
+        }
+
+        [Conditional("DEBUG")]
+        public void BeginEvent(string tag)
+        {
+            m_annotation.BeginEvent(tag);
+        }
+
+        [Conditional("DEBUG")]
+        public void EndEvent()
+        {
+            m_annotation.EndEvent();
+        }
+
+        [Conditional("DEBUG")]
+        public void SetMarker(string tag)
+        {
+            m_annotation.SetMarker(tag);
+        }
+    }
+
     class MyRenderContext
     {
+        MyRenderContextAnnotation m_annotation = new MyRenderContextAnnotation();
+
         static readonly int[] ZeroOffsets = { 0, 0, 0, 0, 0, 0, 0, 0 };
 
         internal MyContextState State;
@@ -364,6 +395,8 @@ namespace VRageRender
             m_finished = false;
             m_joined = false;
             m_commandList = null;
+
+            m_annotation.Init(DeviceContext);
         }
 
         internal void Join()
@@ -571,8 +604,9 @@ namespace VRageRender
 
         internal void BindRawSRV(int slot, IShaderResourceBindable srv)
         {
-            DeviceContext.VertexShader.SetShaderResource(slot, srv.SRV);
-            DeviceContext.PixelShader.SetShaderResource(slot, srv.SRV);
+            ShaderResourceView sharpSRV = srv != null ? srv.SRV : null;
+            DeviceContext.VertexShader.SetShaderResource(slot, sharpSRV);
+            DeviceContext.PixelShader.SetShaderResource(slot, sharpSRV);
 
             Stats.BindShaderResources++;
             Stats.BindShaderResources++;
@@ -581,16 +615,17 @@ namespace VRageRender
 
         internal void VSBindRawSRV(int slot, IShaderResourceBindable srv)
         {
-            DeviceContext.VertexShader.SetShaderResource(slot, srv.SRV);
+            ShaderResourceView sharpSRV = srv != null ? srv.SRV : null;
+            DeviceContext.VertexShader.SetShaderResource(slot, sharpSRV);
 
-            Stats.BindShaderResources++;
             Stats.BindShaderResources++;
             MyRender11.ProcessDebugOutput();
         }
 
         internal void CSBindRawSRV(int slot, IShaderResourceBindable srv)
         {
-            DeviceContext.ComputeShader.SetShaderResource(slot, srv.SRV);
+            ShaderResourceView sharpSRV = srv != null ? srv.SRV : null;
+            DeviceContext.ComputeShader.SetShaderResource(slot, sharpSRV);
 
             Stats.BindShaderResources++;
             MyRender11.ProcessDebugOutput();
@@ -598,7 +633,8 @@ namespace VRageRender
 
         internal void PSBindRawSRV(int slot, IShaderResourceBindable srv)
         {
-            DeviceContext.PixelShader.SetShaderResources(0, srv.SRV);
+            ShaderResourceView sharpSRV = srv != null ? srv.SRV : null;
+            DeviceContext.PixelShader.SetShaderResources(slot, sharpSRV);
 
             Stats.BindShaderResources++;
             MyRender11.ProcessDebugOutput();
@@ -999,6 +1035,7 @@ namespace VRageRender
             MyRender11.ProcessDebugOutput();
         }
 
+        //IMPORTANT: If you change anything here, also change it in BeginProfilingBlockAlways
         [Conditional(VRage.ProfilerShort.PerformanceProfilingSymbol)]
         internal void BeginProfilingBlock(string tag)
         {
@@ -1014,8 +1051,11 @@ namespace VRageRender
             {
                 MyGpuProfiler.IC_Enqueue(info);
             }
+            // this tag will be visible in NSight because of this call:
+            m_annotation.BeginEvent(tag);
         }
 
+        //IMPORTANT: If you change anything here, also change it in EndProfilingBlockAlways
         [Conditional(VRage.ProfilerShort.PerformanceProfilingSymbol)]
         internal void EndProfilingBlock()
         {
@@ -1031,6 +1071,57 @@ namespace VRageRender
             {
                 MyGpuProfiler.IC_Enqueue(info);
             }
+            // this tag will be visible in NSight because of this call:
+            m_annotation.EndEvent();
+        }
+
+        /// <summary>
+        /// BeginProfilingBlock that works even when PerformanceProfilingSymbol is false
+        /// </summary>
+        internal void BeginProfilingBlockAlways(string tag)
+        {
+            var q = MyQueryFactory.CreateTimestampQuery();
+            End(q);
+            var info = new MyIssuedQuery(q, tag, MyIssuedQueryEnum.BlockStart);
+
+            if (m_deferred)
+            {
+                ProfilingQueries.m_issued.Enqueue(info);
+            }
+            else
+            {
+                MyGpuProfiler.IC_Enqueue(info);
+            }
+            // this tag will be visible in NSight because of this call:
+            m_annotation.BeginEvent(tag);
+        }
+
+        /// <summary>
+        /// EndProfilingBlock that works even when PerformanceProfilingSymbol is false
+        /// </summary>
+        internal void EndProfilingBlockAlways()
+        {
+            var q = MyQueryFactory.CreateTimestampQuery();
+            End(q);
+            var info = new MyIssuedQuery(q, "", MyIssuedQueryEnum.BlockEnd);
+
+            if (m_deferred)
+            {
+                ProfilingQueries.m_issued.Enqueue(info);
+            }
+            else
+            {
+                MyGpuProfiler.IC_Enqueue(info);
+            }
+            // this tag will be visible in NSight because of this call:
+            m_annotation.EndEvent();
+        }
+
+        [Conditional(VRage.ProfilerShort.PerformanceProfilingSymbol)]
+        internal void SetProfilingMarker(string tag)
+        {
+            // this tag will be visible in NSight because of this call:
+            m_annotation.SetMarker(tag);
         }
 
         internal static void OnDeviceReset()

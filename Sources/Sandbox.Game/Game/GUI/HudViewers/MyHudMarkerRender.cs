@@ -16,16 +16,15 @@ using VRage.Game;
 using VRage.Game.Entity;
 using VRage.Game.Gui;
 using VRage.Generics;
+using VRage.Profiler;
 using VRage.Utils;
 using VRageMath;
 
 namespace Sandbox.Game.GUI.HudViewers
 {
-    public class MyHudMarkerRender
+    public class MyHudMarkerRender : MyHudMarkerRenderBase
     {
         //const float MAX_ANTENNA_DRAW_DISTANCE = 500000;
-        const double LS_METRES = 299792458.0001367;
-        const double LY_METRES = 9.460730473e+15;
 
         static float m_friendAntennaRange = MyPerGameSettings.MaxAntennaDrawDistance;
 
@@ -45,11 +44,12 @@ namespace Sandbox.Game.GUI.HudViewers
         public static SignalMode SignalDisplayMode { get; private set; }
         private MyHudNotification m_signalModeNotification = null;
 
-        public void Update()
+        public override void Update()
         {
             m_disableFading = VRage.Input.MyInput.Static.IsGameControlPressed(MyControlsSpace.LOOKAROUND);
 
-            if (VRage.Input.MyInput.Static.IsNewGameControlPressed(MyControlsSpace.TOGGLE_SIGNALS) && Sandbox.Graphics.GUI.MyScreenManager.FocusedControl == null)
+            //for now make extra check for control key. Maybe trigger from HandleInput?
+            if (VRage.Input.MyInput.Static.IsNewGameControlPressed(MyControlsSpace.TOGGLE_SIGNALS) && !VRage.Input.MyInput.Static.IsAnyCtrlKeyPressed() && Sandbox.Graphics.GUI.MyScreenManager.FocusedControl == null)
             {
                 SignalDisplayMode += 1;
                 if (SignalDisplayMode >= SignalMode.MaxSignalModes)
@@ -120,79 +120,11 @@ namespace Sandbox.Game.GUI.HudViewers
             }
         }
 
-        public class MyMarkerStyle
+        public MyHudMarkerRender(MyGuiScreenHudBase hudScreen) : base(hudScreen)
         {
-            public MyFontEnum Font { get; set; }
-            public MyHudTexturesEnum TextureDirectionIndicator { get; set; }
-            public MyHudTexturesEnum TextureTarget { get; set; }
-            public Color Color { get; set; }
-            public float TextureTargetRotationSpeed { get; set; }
-            public float TextureTargetScale { get; set; }
-
-            public MyMarkerStyle(MyFontEnum font, MyHudTexturesEnum textureDirectionIndicator, MyHudTexturesEnum textureTarget, Color color, float textureTargetRotationSpeed = 0f, float textureTargetScale = 1f)
-            {
-                Font = font;
-                TextureDirectionIndicator = textureDirectionIndicator;
-                TextureTarget = textureTarget;
-                this.Color = color;
-                TextureTargetRotationSpeed = textureTargetRotationSpeed;
-                TextureTargetScale = textureTargetScale;
-            }
         }
 
-        public class DistanceComparer : IComparer<MyHudEntityParams>
-        {
-            public int Compare(MyHudEntityParams x, MyHudEntityParams y)
-            {
-                return Vector3D.DistanceSquared(MySector.MainCamera.Position, y.Entity.PositionComp.GetPosition()).CompareTo(Vector3D.DistanceSquared(MySector.MainCamera.Position, x.Entity.PositionComp.GetPosition()));
-            }
-        }
-
-        private MyGuiScreenHudBase m_hudScreen;
-        private List<MyMarkerStyle> m_markerStyles;
-        private int[] m_markerStylesForBlocks;
-
-        private List<MyHudEntityParams> m_sortedMarkers = new List<MyHudEntityParams>(128);
-        private DistanceComparer m_distanceComparer = new DistanceComparer();
-
-        public MyHudMarkerRender(MyGuiScreenHudBase hudScreen)
-        {
-            m_hudScreen = hudScreen;
-            m_markerStyles = new List<MyMarkerStyle>();
-
-            int neutralStyle, enemyStyle, ownerStyle, factionStyle;
-            neutralStyle = AllocateMarkerStyle(MyFontEnum.White, MyHudTexturesEnum.DirectionIndicator, MyHudTexturesEnum.Target_neutral, MyHudConstants.MARKER_COLOR_WHITE);
-            enemyStyle = AllocateMarkerStyle(MyFontEnum.Red, MyHudTexturesEnum.DirectionIndicator, MyHudTexturesEnum.Target_enemy, MyHudConstants.MARKER_COLOR_WHITE);
-            ownerStyle = AllocateMarkerStyle(MyFontEnum.DarkBlue, MyHudTexturesEnum.DirectionIndicator, MyHudTexturesEnum.Target_me, MyHudConstants.MARKER_COLOR_WHITE);
-            factionStyle = AllocateMarkerStyle(MyFontEnum.Green, MyHudTexturesEnum.DirectionIndicator, MyHudTexturesEnum.Target_friend, MyHudConstants.MARKER_COLOR_WHITE);
-
-            m_markerStylesForBlocks = new int[MyUtils.GetMaxValueFromEnum<VRage.Game.MyRelationsBetweenPlayerAndBlock>() + 1];
-            m_markerStylesForBlocks[(int)VRage.Game.MyRelationsBetweenPlayerAndBlock.Neutral] = neutralStyle;
-            m_markerStylesForBlocks[(int)VRage.Game.MyRelationsBetweenPlayerAndBlock.Enemies] = enemyStyle;
-            m_markerStylesForBlocks[(int)VRage.Game.MyRelationsBetweenPlayerAndBlock.Owner] = ownerStyle;
-            m_markerStylesForBlocks[(int)VRage.Game.MyRelationsBetweenPlayerAndBlock.FactionShare] = factionStyle;
-            m_markerStylesForBlocks[(int)VRage.Game.MyRelationsBetweenPlayerAndBlock.NoOwnership] = factionStyle;
-        }
-
-        public int AllocateMarkerStyle(MyFontEnum font, MyHudTexturesEnum directionIcon, MyHudTexturesEnum targetIcon, Color color)
-        {
-            int newHandle = m_markerStyles.Count;
-            m_markerStyles.Add(new MyMarkerStyle(font, directionIcon, targetIcon, color));
-            return newHandle;
-        }
-
-        public void OverrideStyleForRelation(VRage.Game.MyRelationsBetweenPlayerAndBlock relation, MyFontEnum font, MyHudTexturesEnum directionIcon, MyHudTexturesEnum targetIcon, Color color)
-        {
-            int handle = GetStyleForRelation(relation);
-            m_markerStyles[handle] = new MyMarkerStyle(font, directionIcon, targetIcon, color);
-        }
-
-        public int GetStyleForRelation(VRage.Game.MyRelationsBetweenPlayerAndBlock relation)
-        {
-            return m_markerStylesForBlocks[(int)relation];
-        }
-
-        public void DrawLocationMarkers(MyHudLocationMarkers locationMarkers)
+        public override void DrawLocationMarkers(MyHudLocationMarkers locationMarkers)
         {
             ProfilerShort.Begin("MyHudMarkerRender.DrawLocationMarkers");
 
@@ -327,11 +259,16 @@ namespace Sandbox.Game.GUI.HudViewers
                 /// Used for static entities (Stations, etc)
                 /// </summary>
                 StaticEntity,
-                
+
                 /// <summary>
                 /// Used for GPS coordinates
                 /// </summary>
                 GPS,
+
+                /// <summary>
+                /// Used for Button Markers
+                /// </summary>
+                ButtonMarker,
             }
 
             // World state
@@ -339,6 +276,7 @@ namespace Sandbox.Game.GUI.HudViewers
             public PointOfInterestType POIType { get; private set; }
             public MyRelationsBetweenPlayerAndBlock Relationship { get; private set; }
             public MyEntity Entity { get; private set; }
+            public Color DefaultColor = new Color(117, 201, 241); 
 
             public StringBuilder Text { get; private set; }
 
@@ -588,7 +526,7 @@ namespace Sandbox.Game.GUI.HudViewers
             /// <param name="color"></param>
             /// <param name="fontColor"></param>
             /// <param name="font"></param>
-            public void GetColorAndFontForRelationship(MyRelationsBetweenPlayerAndBlock relationship, out Color color, out Color fontColor, out MyFontEnum font)
+            public void GetColorAndFontForRelationship(MyRelationsBetweenPlayerAndBlock relationship, out Color color, out Color fontColor, out string font)
             {
                 color = Color.White;
                 fontColor = Color.White;
@@ -624,7 +562,7 @@ namespace Sandbox.Game.GUI.HudViewers
             /// <param name="poiColor">The colour of the POI.</param>
             /// <param name="fontColor">The colour that should be used with this font.</param>
             /// <param name="font">The font to be used for this POI.</param>
-            public void GetPOIColorAndFontInformation(out Color poiColor, out Color fontColor, out MyFontEnum font)
+            public void GetPOIColorAndFontInformation(out Color poiColor, out Color fontColor, out string font)
             {
                 poiColor = Color.White;
                 fontColor = Color.White;
@@ -654,8 +592,8 @@ namespace Sandbox.Game.GUI.HudViewers
 
                     // GPS is always blue
                     case PointOfInterestType.GPS:
-                        poiColor = new Color(117, 201, 241);
-                        fontColor = new Color(117, 201, 241);
+                        poiColor = DefaultColor;
+                        fontColor = DefaultColor;
                         font = MyFontEnum.Blue;
                         break;
                 }
@@ -720,7 +658,7 @@ namespace Sandbox.Game.GUI.HudViewers
                 //ProfilerShort.BeginNextBlock("Obtain style");
                 Color markerColor = Color.White;
                 Color fontColor = Color.White;
-                MyFontEnum font = MyFontEnum.White;
+                string font = MyFontEnum.White;
                 GetPOIColorAndFontInformation(out markerColor, out fontColor, out font);
 
                 //  This will bound the rectangle in circle, although it isn't real circle because we work in [0,1] dimensions, 
@@ -851,7 +789,7 @@ namespace Sandbox.Game.GUI.HudViewers
                 // Render name, but only if visible
                 //ProfilerShort.BeginNextBlock("Draw name");
                 Vector2 textLabelOffset = new Vector2(0, 24f / MyGuiManager.GetFullscreenRectangle().Width);
-                if (SignalDisplayMode != SignalMode.NoNames || m_disableFading || AlwaysVisible)
+                if (SignalDisplayMode != SignalMode.NoNames || POIType == PointOfInterestType.ButtonMarker || m_disableFading || AlwaysVisible)
                 {
                     if (alphaValue > float.Epsilon && this.Text.Length > 0)
                     {
@@ -1401,13 +1339,14 @@ namespace Sandbox.Game.GUI.HudViewers
             poi.SetText(entityName);
         }
 
-        public void AddGPS(Vector3D worldPosition, string name, bool alwaysVisible)
+        public void AddGPS(Vector3D worldPosition, string name, bool alwaysVisible, Color color)
         {
             // Don't add poi if we're not displaying them
             if (SignalDisplayMode == SignalMode.Off) return;
 
             PointOfInterest poi = m_pointOfInterestPool.Allocate();
             m_pointsOfInterest.Add(poi);
+            poi.DefaultColor = color;
             poi.Reset();
             poi.SetState(worldPosition, PointOfInterest.PointOfInterestType.GPS, MyRelationsBetweenPlayerAndBlock.Owner);
             poi.SetText(name);
@@ -1417,13 +1356,14 @@ namespace Sandbox.Game.GUI.HudViewers
         public void AddButtonMarker(Vector3D worldPosition, string name)
         {
             // Don't add poi if we're not displaying them
-            if (SignalDisplayMode == SignalMode.Off) return;
+            //if (SignalDisplayMode == SignalMode.Off) return;
 
             PointOfInterest poi = m_pointOfInterestPool.Allocate();
-            m_pointsOfInterest.Add(poi);
             poi.Reset();
-            poi.SetState(worldPosition, PointOfInterest.PointOfInterestType.GPS, MyRelationsBetweenPlayerAndBlock.Owner);
+            poi.AlwaysVisible = true;
+            poi.SetState(worldPosition, PointOfInterest.PointOfInterestType.ButtonMarker, MyRelationsBetweenPlayerAndBlock.Owner);
             poi.SetText(name);
+            m_pointsOfInterest.Add(poi);
         }
 
         public void AddOre(Vector3D worldPosition, string name)
@@ -1502,11 +1442,11 @@ namespace Sandbox.Game.GUI.HudViewers
             }
         }
 
-        public void Draw()
+        public override void Draw()
         {
             // Don't draw if signal mode is set to off
-            if (SignalDisplayMode == SignalMode.Off)
-                return;
+            //if (SignalDisplayMode == SignalMode.Off)
+                //return;
 
             Vector3D cameraPosition = MySector.MainCamera.Position;
 
@@ -1523,6 +1463,13 @@ namespace Sandbox.Game.GUI.HudViewers
                 {
                     PointOfInterest poi = m_pointsOfInterest[i];
                     PointOfInterest groupPOI = null;
+
+                    if (poi.AlwaysVisible)
+                    {
+                        finalPOIs.Add(poi);
+                        continue;
+                    }
+
 
                     if (poi.AllowsCluster)
                     {
@@ -1602,66 +1549,6 @@ namespace Sandbox.Game.GUI.HudViewers
 
             ProfilerShort.End();
             m_pointsOfInterest.Clear();
-        }
-
-        /// <summary>
-        /// Add textured quad with specified UP direction and width/height.
-        /// </summary>
-        protected void AddTexturedQuad(MyHudTexturesEnum texture, Vector2 position, Vector2 upVector, Color color, float halfWidth, float halfHeight)
-        {
-            Vector2 rightVector = new Vector2(-upVector.Y, upVector.X);
-
-            MyAtlasTextureCoordinate textureCoord = m_hudScreen.GetTextureCoord(texture);
-
-            Vector2 screen = new Vector2(MyGuiManager.GetSafeFullscreenRectangle().Width, MyGuiManager.GetSafeFullscreenRectangle().Height);
-
-            float hudSizeX = screen.X / MyGuiManager.GetHudSize().X;
-            float hudSizeY = screen.Y / MyGuiManager.GetHudSize().Y;
-
-            var pos = position;
-            if (MyVideoSettingsManager.IsTripleHead())
-                pos.X += 1.0f;
-
-            float yScale = screen.Y / 1080f;
-            halfWidth *= yScale;
-            halfHeight *= yScale;
-
-            VRageRender.MyRenderProxy.DrawSpriteAtlas(
-                m_hudScreen.TextureAtlas,
-                pos,
-                textureCoord.Offset,
-                textureCoord.Size,
-                rightVector,
-                new Vector2(hudSizeX, hudSizeY),
-                color,
-                new Vector2(halfWidth, halfHeight));
-        }
-
-        /// <summary>
-        /// Add textured quad with specified UP direction and width/height.
-        /// </summary>
-        protected void AddTexturedQuad(string texture, Vector2 position, Vector2 upVector, Color color, float halfWidth, float halfHeight)
-        {
-            Vector2 screen = new Vector2(MyGuiManager.GetSafeFullscreenRectangle().Width, MyGuiManager.GetSafeFullscreenRectangle().Height);
-
-            float hudSizeX = screen.X / MyGuiManager.GetHudSize().X;
-            float hudSizeY = screen.Y / MyGuiManager.GetHudSize().Y;
-
-            if (MyVideoSettingsManager.IsTripleHead())
-                position.X += 1.0f;
-
-            position.X *= hudSizeX;
-            position.Y *= hudSizeY;
-
-            float yScale = screen.Y / 1080f;
-            halfWidth *= yScale;
-            halfHeight *= yScale;
-
-            RectangleF dest = new RectangleF(position.X - halfWidth, position.Y - halfHeight, halfWidth * 2, halfHeight * 2);
-            Rectangle? source = null;
-
-            VRageRender.MyRenderProxy.DrawSprite(texture, ref dest, false, ref source, color, 0,
-                new Vector2(1, 0), ref Vector2.Zero, VRageRender.Graphics.SpriteEffects.None, 0);
         }
 
 		static public float Normalize(float value)

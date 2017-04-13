@@ -28,6 +28,7 @@ namespace Sandbox.Game.EntityComponents
         private AtmosphereStatus m_atmosphereStatus = AtmosphereStatus.NotSet;
         public bool InAtmosphere { get { return m_atmosphereStatus == AtmosphereStatus.Atmosphere; } }
         public bool InShipOrStation { get { return m_atmosphereStatus == AtmosphereStatus.ShipOrStation; } }
+        public bool InVoid { get { return m_atmosphereStatus == AtmosphereStatus.Space; } }
 
         public void InitComponent(bool onlyLocalPlayer, MyCharacter character)
         {
@@ -45,7 +46,7 @@ namespace Sandbox.Game.EntityComponents
                 Vector3 gravity = MyGravityProviderSystem.CalculateNaturalGravityInPoint(pos);
                 if (gravity.LengthSquared() > 0f)
                 {
-                    MyPlanet planet = MyGravityProviderSystem.GetNearestPlanet(pos);
+                    MyPlanet planet = MyGamePruningStructure.GetClosestPlanet(pos);
                     if (planet != null && planet.HasAtmosphere && planet.GetAirDensity(pos) > 0.5f)
                         m_atmosphereStatus = AtmosphereStatus.Atmosphere;//in atmosphere
                     else

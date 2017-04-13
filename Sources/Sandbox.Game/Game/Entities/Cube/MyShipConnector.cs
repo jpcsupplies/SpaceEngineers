@@ -12,7 +12,7 @@ using Sandbox.Game.Localization;
 using Sandbox.Game.Multiplayer;
 using Sandbox.Game.Screens.Terminal.Controls;
 using Sandbox.Game.World;
-using Sandbox.ModAPI.Ingame;
+using Sandbox.ModAPI;
 using SteamSDK;
 using System;
 using System.Collections.Generic;
@@ -32,16 +32,27 @@ using Sandbox.ModAPI.Interfaces;
 using VRage.Game.Entity;
 using VRage.Game;
 using VRage.Game.ModAPI.Ingame;
+using VRage.Profiler;
+using VRage.Sync;
+using IMyEntity = VRage.ModAPI.IMyEntity;
+#if XB1 // XB1_SYNC_SERIALIZER_NOEMIT
+using System.Reflection;
+using VRage.Reflection;
+#endif // XB1
 
 namespace Sandbox.Game.Entities.Cube
 {
     [MyCubeBlockType(typeof(MyObjectBuilder_ShipConnector))]
-    partial class MyShipConnector : MyFunctionalBlock, IMyInventoryOwner, IMyConveyorEndpointBlock, IMyShipConnector
+    public partial class MyShipConnector : MyFunctionalBlock, IMyInventoryOwner, IMyConveyorEndpointBlock, IMyShipConnector
     {
         /// <summary>
         /// Represents connector state, atomic for sync, 8 B + 1b + 1b/12.5B
         /// </summary>
+#if !XB1 // XB1_SYNC_SERIALIZER_NOEMIT
         struct State
+#else // XB1
+        struct State : IMySetGetMemberDataHelper
+#endif // XB1
         {
             public static readonly State Detached = new State();
             public static readonly State DetachedMaster = new State() { IsMaster = true };
@@ -50,6 +61,23 @@ namespace Sandbox.Game.Entities.Cube
             public long OtherEntityId; // zero when detached, valid EntityId when approaching or connected
             public MyDeltaTransform? MasterToSlave; // relative connector-to-connector world transform MASTER * DELTA = SLAVE, null when detached/approaching, valid value when connected
             public MyDeltaTransform? MasterToSlaveGrid;
+
+#if XB1 // XB1_SYNC_SERIALIZER_NOEMIT
+            public object GetMemberData(MemberInfo m)
+            {
+                if (m.Name == "IsMaster")
+                    return IsMaster;
+                if (m.Name == "OtherEntityId")
+                    return OtherEntityId;
+                if (m.Name == "MasterToSlave")
+                    return MasterToSlave;
+                if (m.Name == "MasterToSlaveGrid")
+                    return MasterToSlaveGrid;
+
+                System.Diagnostics.Debug.Assert(false, "TODO for XB1.");
+                return null;
+            }
+#endif // XB1
         }
 
         private enum Mode
@@ -108,12 +136,33 @@ namespace Sandbox.Game.Entities.Cube
         public bool InConstraint { get { return m_welded || m_constraint != null; } }
         public bool Connected { get; set; }
 
+        private bool m_isInitOnceBeforeFrameUpdate = false;
+
         private Vector3 ConnectionPosition { get { return Vector3.Transform(m_connectionPosition, this.PositionComp.LocalMatrix); } }
 
         public int DetectedGridCount { get { return m_detectedGrids.Count; } }
 
-        static MyShipConnector()
+        public MyShipConnector()
         {
+#if XB1 // XB1_SYNC_NOREFLECTION
+            ThrowOut = SyncType.CreateAndAddProp<bool>();
+            CollectAll = SyncType.CreateAndAddProp<bool>();
+            Strength = SyncType.CreateAndAddProp<float>();
+            m_connectionState = SyncType.CreateAndAddProp<State>();
+#endif // XB1
+            CreateTerminalControls();
+
+            m_connectionState.ValueChanged += (o) => OnConnectionStateChanged();
+            m_connectionState.ValidateNever(); // Never set by client
+            m_manualDisconnectTime = new MyTimeSpan(-DisconnectSleepTime.Ticks);
+            Strength.Validate = (o) => Strength >= 0 && Strength <= 1;
+        }
+
+        protected override void CreateTerminalControls()
+        {
+            if (MyTerminalControlFactory.AreControlsCreated<MyShipConnector>())
+                return;
+            base.CreateTerminalControls();
             var throwOut = new MyTerminalControlOnOffSwitch<MyShipConnector>("ThrowOut", MySpaceTexts.Terminal_ThrowOut);
             throwOut.Getter = (block) => block.ThrowOut;
             throwOut.Setter = (block, value) => block.ThrowOut.Value = value;
@@ -163,14 +212,6 @@ namespace Sandbox.Game.Entities.Cube
                     result.AppendFormatedDecimal("", x.Strength * 100, 4, " %");
             };
             MyTerminalControlFactory.AddControl(strength);
-        }
-
-        public MyShipConnector()
-        {
-            m_connectionState.ValueChanged += (o) => OnConnectionStateChanged();
-            m_connectionState.ValidateNever(); // Never set by client
-            m_manualDisconnectTime = new MyTimeSpan(-DisconnectSleepTime.Ticks);
-            Strength.Validate = (o) => Strength >= 0 && Strength <= 1;
         }
 
         private void OnConnectionStateChanged()
@@ -238,7 +279,7 @@ namespace Sandbox.Game.Entities.Cube
 
         protected override bool CheckIsWorking()
         {
-            return ResourceSink.IsPowered && base.CheckIsWorking();
+            return ResourceSink.IsPoweredByType(MyResourceDistributorComponent.ElectricityId) && base.CheckIsWorking();
         }
 
         protected float GetEffectiveStrength(MyShipConnector otherConnector)
@@ -267,7 +308,7 @@ namespace Sandbox.Game.Entities.Cube
             sinkComp.Init(
                 MyStringHash.GetOrCompute("Conveyors"),
                 consumption,
-                () => base.CheckIsWorking() ? ResourceSink.MaxRequiredInput : 0f
+                () => base.CheckIsWorking() ? ResourceSink.MaxRequiredInputByType(MyResourceDistributorComponent.ElectricityId) : 0f
             );
             sinkComp.IsPoweredChanged += Receiver_IsPoweredChanged;
             ResourceSink = sinkComp;
@@ -328,6 +369,7 @@ namespace Sandbox.Game.Entities.Cube
                 IsMaster = ob.IsMaster.Value;
                 m_connectionState.Value = new State() {IsMaster =  ob.IsMaster.Value, OtherEntityId = ob.ConnectedEntityId, MasterToSlave = deltaTransform,MasterToSlaveGrid = ob.MasterToSlaveGrid};
                 NeedsUpdate |= MyEntityUpdateEnum.BEFORE_NEXT_FRAME;
+                m_isInitOnceBeforeFrameUpdate = true;
             }
 
             IsWorkingChanged += MyShipConnector_IsWorkingChanged;                       
@@ -397,6 +439,18 @@ namespace Sandbox.Game.Entities.Cube
             }
 
             UpdateEmissivity();
+        }
+
+        protected override void OnStopWorking()
+        {
+            UpdateEmissivity();
+            base.OnStopWorking();
+        }
+
+        protected override void OnStartWorking()
+        {
+            UpdateEmissivity();
+            base.OnStartWorking();
         }
 
         private void LoadDummies()
@@ -492,7 +546,7 @@ namespace Sandbox.Game.Entities.Cube
             var entities = body.GetAllEntities();
             foreach (var entity in entities)
             {
-                m_detectedGrids.Remove(entity as MyCubeGrid);
+                 m_detectedGrids.Remove(entity as MyCubeGrid);
             }
             entities.Clear();
             ProfilerShort.End();
@@ -589,27 +643,29 @@ namespace Sandbox.Game.Entities.Cube
                     obj = m_other;
 
                 if (obj.Connected)
-                    UpdateNamedEmissiveParts(Render.RenderObjectIDs[0], "Emissive1", Color.ForestGreen, 1);
+                    UpdateNamedEmissiveParts(Render.RenderObjectIDs[0], "Emissive", Color.ForestGreen, 1);
                 else if (obj.IsReleasing)
-                    UpdateNamedEmissiveParts(Render.RenderObjectIDs[0], "Emissive1", Color.RoyalBlue, 0.5f);
+                    UpdateNamedEmissiveParts(Render.RenderObjectIDs[0], "Emissive", Color.RoyalBlue, 0.5f);
                 else
-                    UpdateNamedEmissiveParts(Render.RenderObjectIDs[0], "Emissive1", Color.Goldenrod, 1);
+                    UpdateNamedEmissiveParts(Render.RenderObjectIDs[0], "Emissive", Color.Goldenrod, 1);
             }
             else
             {
                 if (!IsWorking && m_connectorMode == Mode.Connector)
-                    UpdateNamedEmissiveParts(Render.RenderObjectIDs[0], "Emissive1", Color.Black, 1);
+                    UpdateNamedEmissiveParts(Render.RenderObjectIDs[0], "Emissive", Color.Black, 1);
+                else if (IsWorking && m_connectorMode == Mode.Ejector)
+                    UpdateNamedEmissiveParts(Render.RenderObjectIDs[0], "Emissive", Color.ForestGreen, 1);
                 else if (m_detectedFloaters.Count < 2 || !IsWorking)
-                    UpdateNamedEmissiveParts(Render.RenderObjectIDs[0], "Emissive1", Color.Gray, 1);
+                    UpdateNamedEmissiveParts(Render.RenderObjectIDs[0], "Emissive", Color.Gray, 1);
                 else
-                    UpdateNamedEmissiveParts(Render.RenderObjectIDs[0], "Emissive1", Color.Red, 1);
+                    UpdateNamedEmissiveParts(Render.RenderObjectIDs[0], "Emissive", Color.Red, 1);
             }
         }
 
         private void TryAttach(long? otherConnectorId = null)
         {
             var otherConnector = FindOtherConnector(otherConnectorId);
-            if (otherConnector != null && otherConnector.FriendlyWithBlock(this))
+            if (otherConnector != null && otherConnector.FriendlyWithBlock(this) && CubeGrid.Physics != null  && otherConnector.CubeGrid.Physics != null)
             {
                 var pos = ConstraintPositionWorld();
                 var otherPos = otherConnector.ConstraintPositionWorld();
@@ -622,13 +678,13 @@ namespace Sandbox.Game.Entities.Cube
 
                     if (master == this)
                     {
-                        this.CreateConstraint(otherConnector);
+                        CreateConstraint(otherConnector);
                         otherConnector.IsMaster = false;
                     }
                     else
                     {
                         otherConnector.CreateConstraint(this);
-                        this.IsMaster = false;
+                        IsMaster = false;
                     }
                 }
             }
@@ -700,6 +756,17 @@ namespace Sandbox.Game.Entities.Cube
 
         private void UpdateConnectionState()
         {
+            if (m_isInitOnceBeforeFrameUpdate)
+            {
+                m_isInitOnceBeforeFrameUpdate = false;
+            }
+            else if (m_other == null && (m_connectionState.Value.OtherEntityId != 0))
+            {
+                if (Sync.IsServer)
+                {
+                    m_connectionState.Value = State.Detached;
+                }
+            }
             if (!IsMaster)
                 return;
 
@@ -724,13 +791,16 @@ namespace Sandbox.Game.Entities.Cube
                 MyShipConnector connector;
                 if (!InConstraint && MyEntities.TryGetEntityById<MyShipConnector>(state.OtherEntityId, out connector) && connector.FriendlyWithBlock(this) && connector.Closed == false && connector.MarkedForClose == false)
                 {
-                    if (Sync.IsServer == false && state.MasterToSlaveGrid.HasValue)
+                    if (Physics != null && connector.Physics != null)
                     {
-                        this.CubeGrid.WorldMatrix = MatrixD.Multiply(state.MasterToSlaveGrid.Value, connector.WorldMatrix);
+                        if (Sync.IsServer == false && state.MasterToSlaveGrid.HasValue)
+                        {
+                            CubeGrid.WorldMatrix = MatrixD.Multiply(state.MasterToSlaveGrid.Value, connector.WorldMatrix);
+                        }
+                        CreateConstraintNosync(connector);
+                        UpdateEmissivity();
+                        m_other.UpdateEmissivity();
                     }
-                    this.CreateConstraintNosync(connector);
-                    UpdateEmissivity();
-                    m_other.UpdateEmissivity();
                 }
 
             }
@@ -1253,6 +1323,8 @@ namespace Sandbox.Game.Entities.Cube
             if (this.m_connectorDummy != null && this.m_connectorDummy.Enabled && this.m_connectorDummy != source)
             {
                 m_connectorDummy.OnWorldPositionChanged(source);
+                if(CubeGrid.Physics != null)
+                    m_connectorDummy.LinearVelocity = CubeGrid.Physics.GetVelocityAtPoint(WorldMatrix.Translation);
             }
         }
 
@@ -1263,11 +1335,17 @@ namespace Sandbox.Game.Entities.Cube
                 Detach();
             }
 
+            base.Closing();
+        }
+
+
+        protected override void BeforeDelete()
+        {
+            base.BeforeDelete();
+
             // The connector dummy won't be disposed of automatically, so we have to do it manually
             if (m_connectorDummy != null)
                 m_connectorDummy.Close();
-
-            base.Closing();
         }
 
         public override void DebugDrawPhysics()
@@ -1331,11 +1409,12 @@ namespace Sandbox.Game.Entities.Cube
         #endregion
 
         #region IMyShipConnector
-        bool IMyShipConnector.ThrowOut { get { return ThrowOut; } }
-        bool IMyShipConnector.CollectAll { get { return CollectAll; } }
-        bool IMyShipConnector.IsLocked { get { return IsWorking && InConstraint; } }
-        bool IMyShipConnector.IsConnected { get { return Connected; } }
-        IMyShipConnector IMyShipConnector.OtherConnector { get { return m_other; } }
+        bool ModAPI.Ingame.IMyShipConnector.ThrowOut { get { return ThrowOut; } }
+        bool ModAPI.Ingame.IMyShipConnector.CollectAll { get { return CollectAll; } }
+        bool ModAPI.Ingame.IMyShipConnector.IsLocked { get { return IsWorking && InConstraint; } }
+        bool ModAPI.Ingame.IMyShipConnector.IsConnected { get { return Connected; } }
+        ModAPI.Ingame.IMyShipConnector ModAPI.Ingame.IMyShipConnector.OtherConnector { get { return m_other; } }
+        IMyShipConnector ModAPI.IMyShipConnector.OtherConnector { get { return m_other; } }
         #endregion
 
         public bool UseConveyorSystem

@@ -11,7 +11,7 @@ namespace VRage.Game
     [MyObjectBuilderDefinition]
     public class MyObjectBuilder_Definitions : MyObjectBuilder_Base
     {
-        [XmlElement("Definition", Type = typeof(MyAbstractXmlSerializer<MyObjectBuilder_DefinitionBase>))]
+        [XmlElement(MyDefinitionXmlSerializer.DEFINITION_ELEMENT_NAME, Type = typeof(MyDefinitionXmlSerializer))]
         public MyObjectBuilder_DefinitionBase[] Definitions;
 
         [XmlArrayItem("GridCreator")]
@@ -47,8 +47,8 @@ namespace VRage.Game
         public MyObjectBuilder_Configuration Configuration;
 
         [ProtoMember]
-        [XmlElement(Type = typeof(MyAbstractXmlSerializer<MyObjectBuilder_EnvironmentDefinition>))]
-        public MyObjectBuilder_EnvironmentDefinition Environment;
+        [XmlElement("Environment", Type = typeof(MyAbstractXmlSerializer<MyObjectBuilder_EnvironmentDefinition>))]
+        public MyObjectBuilder_EnvironmentDefinition[] Environments;
 
         [XmlArrayItem("GlobalEvent", Type = typeof(MyAbstractXmlSerializer<MyObjectBuilder_GlobalEventDefinition>))]
         [ProtoMember]
@@ -158,9 +158,17 @@ namespace VRage.Game
         [ProtoMember]
         public MyObjectBuilder_ShipSoundsDefinition[] ShipSoundGroups;
 
+        [ProtoMember]
+        [XmlArrayItem("DroneBehavior", Type = typeof(MyAbstractXmlSerializer<MyObjectBuilder_DroneBehaviorDefinition>))]
+        public MyObjectBuilder_DroneBehaviorDefinition[] DroneBehaviors;
+
         [XmlElement("ShipSoundSystem", Type = typeof(MyAbstractXmlSerializer<MyObjectBuilder_ShipSoundSystemDefinition>))]
         [ProtoMember]
         public MyObjectBuilder_ShipSoundSystemDefinition ShipSoundSystem;
+
+        [XmlArrayItem("ParticleEffect", Type = typeof(MyAbstractXmlSerializer<MyObjectBuilder_ParticleEffect>))]
+        [ProtoMember]
+        public MyObjectBuilder_ParticleEffect[] ParticleEffects;
 
         [XmlArrayItem("AIBehavior", Type = typeof(MyAbstractXmlSerializer<MyObjectBuilder_BehaviorTreeDefinition>))]
         [ProtoMember]
@@ -245,10 +253,6 @@ namespace VRage.Game
         [ProtoMember]
         public MyObjectBuilder_PlanetGeneratorDefinition[] PlanetGeneratorDefinitions;
 
-        [XmlArrayItem("VoxelChanges")]
-        [ProtoMember]
-        public MyObjectBuilder_VoxelMaterialChangesDefinition[] VoxelMaterialChangesDefinition;
-
         [XmlArrayItem("Definition", Type = typeof(MyAbstractXmlSerializer<MyObjectBuilder_FloraElementDefinition>))]
         [ProtoMember]
         public MyObjectBuilder_FloraElementDefinition[] FloraElements;
@@ -307,5 +311,13 @@ namespace VRage.Game
         [XmlArrayItem("Container", Type = typeof(MyAbstractXmlSerializer<MyObjectBuilder_ContainerDefinition>))]
         [ProtoMember]
         public MyObjectBuilder_ContainerDefinition[] EntityContainers;
+
+        [ProtoMember]
+        [XmlArrayItem("ShadowTextureSet")]
+        public MyObjectBuilder_ShadowTextureSetDefinition[] ShadowTextureSets;
+
+        [XmlArrayItem("Font", Type = typeof(MyAbstractXmlSerializer<MyObjectBuilder_FontDefinition>))]
+        [ProtoMember]
+        public MyObjectBuilder_FontDefinition[] Fonts;
     }
 }

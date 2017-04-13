@@ -18,6 +18,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using Sandbox.Game.EntityComponents;
+using Sandbox.ModAPI;
+using Sandbox.Game.SessionComponents.Clipboard;
 using VRage;
 using VRage.FileSystem;
 using VRage.Game;
@@ -26,21 +28,15 @@ using VRage.Library.Utils;
 using VRage.ModAPI;
 using VRageMath;
 using VRage.Game.Entity;
+using VRage.Game.ObjectBuilders.Definitions.SessionComponents;
 using VRage.Network;
+using VRage.Profiler;
+using VRage.Sync;
 
 namespace Sandbox.Game.Entities.Blocks
 {
-    public abstract class MyProjectorBase : MyFunctionalBlock, ModAPI.Ingame.IMyProjector
+    public abstract partial class MyProjectorBase : MyFunctionalBlock
     {
-        public enum BuildCheckResult
-        {
-            OK,
-            NotConnected,
-            IntersectedWithGrid,
-            IntersectedWithSomethingElse,
-            AlreadyBuilt,
-            NotFound,
-        }
 
         public new MyProjectorDefinition BlockDefinition
         {
@@ -60,6 +56,18 @@ namespace Sandbox.Game.Entities.Blocks
         protected Vector3I m_projectionOffset;
         protected Vector3I m_projectionRotation;
 
+        public Vector3I ProjectionOffset { get { return m_projectionOffset; } }
+        public Vector3I ProjectionRotation { get { return m_projectionRotation; } }
+        public Quaternion ProjectionRotationQuaternion
+        {
+            get
+            {
+                Vector3 radians = ProjectionRotation * MathHelper.PiOver2;
+                Quaternion rotation = Quaternion.CreateFromYawPitchRoll(radians.X, radians.Y, radians.Z);
+                return rotation;
+            }
+        }
+
         private MySlimBlock m_hiddenBlock;
 
         private bool m_shouldUpdateProjection = false;
@@ -76,8 +84,15 @@ namespace Sandbox.Game.Entities.Blocks
         public MyProjectorBase()
             : base()
         {
-            m_clipboard = new MyProjectorClipboard(this);
-            m_spawnClipboard = new MyProjectorClipboard(this);
+#if XB1 // XB1_SYNC_NOREFLECTION
+            m_keepProjection = SyncType.CreateAndAddProp<bool>();
+            m_instantBuildingEnabled = SyncType.CreateAndAddProp<bool>();
+            m_maxNumberOfProjections = SyncType.CreateAndAddProp<int>();
+            m_maxNumberOfBlocksPerProjection = SyncType.CreateAndAddProp<int>();
+            m_getOwnershipFromProjector = SyncType.CreateAndAddProp<bool>();
+#endif // XB1
+            m_clipboard = new MyProjectorClipboard(this, MyClipboardComponent.ClipboardDefinition.PastingSettings);
+            m_spawnClipboard = new MyProjectorClipboard(this, MyClipboardComponent.ClipboardDefinition.PastingSettings);
 
             m_keepProjection.Value = false;
             m_instantBuildingEnabled.Value = false;
@@ -145,6 +160,8 @@ namespace Sandbox.Game.Entities.Blocks
             set { m_keepProjection.Value = value; }
         }
 
+        public bool IsActivating { get; private set; }
+
         #endregion
 
         #region UI
@@ -180,7 +197,7 @@ namespace Sandbox.Game.Entities.Blocks
             }
 
             RemoveProjection(false);
-            var blueprintScreen = new MyGuiBlueprintScreen(m_clipboard);
+            var blueprintScreen = new MyGuiBlueprintScreen(m_clipboard, true);
             blueprintScreen.Closed += OnBlueprintScreen_Closed;
             MyGuiSandbox.AddScreen(blueprintScreen);
 
@@ -266,12 +283,16 @@ namespace Sandbox.Game.Entities.Blocks
                 }
             }
 
-            m_originalGridBuilder = (MyObjectBuilder_CubeGrid)m_clipboard.CopiedGrids[largestGridIndex].Clone();
-
-            m_clipboard.ProcessCubeGrid(m_clipboard.CopiedGrids[largestGridIndex]);
-
-            MyEntities.RemapObjectBuilder(m_originalGridBuilder);
-            SendNewBlueprint(m_originalGridBuilder);
+            ParallelTasks.Parallel.Start(delegate()
+            {
+                m_originalGridBuilder = (MyObjectBuilder_CubeGrid)m_clipboard.CopiedGrids[largestGridIndex].Clone();
+                m_clipboard.ProcessCubeGrid(m_clipboard.CopiedGrids[largestGridIndex]);
+                MyEntities.RemapObjectBuilder(m_originalGridBuilder);
+            }, 
+            delegate()
+            {
+                SendNewBlueprint(m_originalGridBuilder);
+            });
         }
 
         protected bool ScenarioSettingsEnabled()
@@ -402,6 +423,7 @@ namespace Sandbox.Game.Entities.Blocks
 
         private void SetTransparencyForSubparts(MyEntity renderEntity, float transparency)
         {
+            renderEntity.Render.CastShadows = false;
 
             if (renderEntity.Subparts == null)
                 return;
@@ -409,6 +431,7 @@ namespace Sandbox.Game.Entities.Blocks
             foreach (var subpart in renderEntity.Subparts)
             {
                 subpart.Value.Render.Transparency = transparency;
+                subpart.Value.Render.CastShadows = false;
                 subpart.Value.Render.RemoveRenderObjects();
                 subpart.Value.Render.AddRenderObjects();
 
@@ -502,7 +525,7 @@ namespace Sandbox.Game.Entities.Blocks
             m_statsDirty = true;
             UpdateText();
 
-            NeedsUpdate |= MyEntityUpdateEnum.BEFORE_NEXT_FRAME;
+            NeedsUpdate |= MyEntityUpdateEnum.BEFORE_NEXT_FRAME | MyEntityUpdateEnum.EACH_100TH_FRAME;
 
             SlimBlock.ComponentStack.IsFunctionalChanged += ComponentStack_IsFunctionalChanged;
 
@@ -516,21 +539,24 @@ namespace Sandbox.Game.Entities.Blocks
         {
             m_clipboard.ResetGridOrientation();
             m_shouldUpdateProjection = true;
-            if (!m_clipboard.IsActive)
+            if (!m_clipboard.IsActive && !IsActivating)
             {
-                m_clipboard.Activate();
+                IsActivating = true;
+                m_clipboard.Activate(delegate()
+                {
+                    if (m_clipboard.PreviewGrids.Count != 0)
+                        ProjectedGrid.Projector = this;
+                    m_shouldUpdateProjection = true;
+                    m_shouldUpdateTexts = true;
+
+                    m_clipboard.ActuallyTestPlacement();
+
+                    SetRotation(m_clipboard, m_projectionRotation);
+
+                    NeedsUpdate |= MyEntityUpdateEnum.EACH_FRAME | MyEntityUpdateEnum.EACH_100TH_FRAME;
+                    IsActivating = false;
+                });
             }
-
-            if (m_clipboard.PreviewGrids.Count != 0)
-                ProjectedGrid.Projector = this;
-            m_shouldUpdateProjection = true;
-            m_shouldUpdateTexts = true;
-
-            m_clipboard.ActuallyTestPlacement();
-
-            SetRotation(m_clipboard, m_projectionRotation);
-
-            NeedsUpdate |= MyEntityUpdateEnum.EACH_FRAME | MyEntityUpdateEnum.EACH_100TH_FRAME;
         }
 
         public override MyObjectBuilder_CubeBlock GetObjectBuilderCubeBlock(bool copy = false)
@@ -623,27 +649,6 @@ namespace Sandbox.Game.Entities.Blocks
         #endregion
 
         #region Update & Events
-        public override void UpdateBeforeSimulation()
-        {
-            base.UpdateBeforeSimulation();
-            
-            if (m_clipboard.IsActive)
-            {
-                m_clipboard.Update();
-
-                if (!MySandboxGame.IsDedicated)
-                {
-                    HideIntersectedBlock();
-                }
-
-                if (m_shouldUpdateProjection)
-                {
-                    UpdateProjection();
-                    m_shouldUpdateProjection = false;
-                }
-            }
-        }
-
         public override void UpdateAfterSimulation()
         {
             base.UpdateAfterSimulation();
@@ -661,6 +666,23 @@ namespace Sandbox.Game.Entities.Blocks
                     }
                     m_frameCount = 0;
                     m_removeRequested = false;
+                }
+            }
+
+
+            if (m_clipboard.IsActive)
+            {
+                m_clipboard.Update();
+
+                if (!MySandboxGame.IsDedicated)
+                {
+                    HideIntersectedBlock();
+                }
+
+                if (m_shouldUpdateProjection)
+                {
+                    UpdateProjection();
+                    m_shouldUpdateProjection = false;
                 }
             }
         }
@@ -770,6 +792,18 @@ namespace Sandbox.Game.Entities.Blocks
 
                 m_clipboard.HasPreviewBBox = false;
             }
+        }
+
+        protected override void OnStopWorking()
+        {
+            UpdateEmissivity();
+            base.OnStopWorking();
+        }
+
+        protected override void OnStartWorking()
+        {
+            UpdateEmissivity();
+            base.OnStartWorking();
         }
 
         private void UpdateEmissivity()
@@ -933,7 +967,7 @@ namespace Sandbox.Game.Entities.Blocks
 
         private void PowerReceiver_IsPoweredChanged()
         {
-			if (!ResourceSink.IsPowered && IsProjecting())
+            if (!ResourceSink.IsPoweredByType(MyResourceDistributorComponent.ElectricityId) && IsProjecting())
             {
                 RequestRemoveProjection();
             }
@@ -1155,21 +1189,18 @@ namespace Sandbox.Game.Entities.Blocks
         {
             MyBlockOrientation blockOrientation = projectedBlock.Orientation;
             
-            Matrix local;
-            blockOrientation.GetMatrix(out local);
-            var gridOrientation = (m_clipboard as MyGridClipboard).GetFirstGridOrientationMatrix();
-            if (gridOrientation != Matrix.Identity)
-            {
-                var afterRotation = Matrix.Multiply(local, gridOrientation);
-                blockOrientation = new MyBlockOrientation(ref afterRotation);
-            }
-            
+            //GR: For rotation take into account:
+            //the projected block orientation
             Quaternion blockOrientationQuat;
             blockOrientation.GetQuaternion(out blockOrientationQuat);
 
+            //GR: The projector block orientation (which is relative to the Cubegrid orientation)
             Quaternion projQuat = Quaternion.Identity;
             Orientation.GetQuaternion(out projQuat);
-            blockOrientationQuat = Quaternion.Multiply(projQuat, blockOrientationQuat);
+
+            //AB: The orienation settings of the projector 
+            //Take into account order of multiplication to review!
+            blockOrientationQuat = Quaternion.Multiply(Quaternion.Multiply(projQuat, ProjectionRotationQuaternion), blockOrientationQuat);
 
             Vector3I projectedMin = CubeGrid.WorldToGridInteger(projectedBlock.CubeGrid.GridIntegerToWorld(projectedBlock.Min));
             Vector3I projectedMax = CubeGrid.WorldToGridInteger(projectedBlock.CubeGrid.GridIntegerToWorld(projectedBlock.Max));
@@ -1187,7 +1218,7 @@ namespace Sandbox.Game.Entities.Blocks
             }
 
             MyGridPlacementSettings settings = new MyGridPlacementSettings();
-            settings.Mode = MyGridPlacementSettings.SnapMode.OneFreeAxis;
+            settings.SnapMode = SnapMode.OneFreeAxis;
 
 			var mountPoints = projectedBlock.BlockDefinition.GetBuildProgressModelMountPoints(1.0f);
 			bool isConnected = MyCubeGrid.CheckConnectivity(this.CubeGrid, projectedBlock.BlockDefinition, mountPoints,
@@ -1223,25 +1254,16 @@ namespace Sandbox.Game.Entities.Blocks
             }
         }
 
-        public void Build(MySlimBlock cubeBlock, long owner, long builder)
+        public void Build(MySlimBlock cubeBlock, long owner, long builder, bool requestInstant = true, long builtBy = 0)
         {
             Quaternion quat = Quaternion.Identity;
             var orientation = cubeBlock.Orientation;
 
-            Matrix local;
-            orientation.GetMatrix(out local);
-            var gridOrientation = m_clipboard.GetFirstGridOrientationMatrix();
-            if (gridOrientation != Matrix.Identity)
-            {
-                var afterRotation = Matrix.Multiply(local, gridOrientation);
-                orientation = new MyBlockOrientation(ref afterRotation);
-            }
-
             Quaternion projQuat = Quaternion.Identity;
             Orientation.GetQuaternion(out projQuat);
             orientation.GetQuaternion(out quat);
+            quat = Quaternion.Multiply(ProjectionRotationQuaternion, quat);
             quat = Quaternion.Multiply(projQuat, quat);
-
 
             var projectorGrid = CubeGrid;
             var projectedGrid = cubeBlock.CubeGrid;
@@ -1257,30 +1279,35 @@ namespace Sandbox.Game.Entities.Blocks
             Vector3I projectedMax = new Vector3I(Math.Max(min.X, max.X), Math.Max(min.Y, max.Y), Math.Max(min.Z, max.Z));
 
 
-            MyCubeGrid.MyBlockLocation location = new MyCubeGrid.MyBlockLocation(cubeBlock.BlockDefinition.Id, projectedMin, projectedMax, pos,
-                quat, 0, owner);
+            MyCubeGrid.MyBlockLocation location = new MyCubeGrid.MyBlockLocation(cubeBlock.BlockDefinition.Id, projectedMin, projectedMax, pos, quat, 0, owner);
 
             MyObjectBuilder_CubeBlock objectBuilder = null;
-            //Find original grid builder
-            foreach (var blockBuilder in m_originalGridBuilder.CubeBlocks)
+
+            if (m_originalGridBuilder != null)
             {
-                if ((Vector3I)blockBuilder.Min == cubeMin && blockBuilder.GetId() == cubeBlock.BlockDefinition.Id)
+                //Find original grid builder
+                foreach (var blockBuilder in m_originalGridBuilder.CubeBlocks)
                 {
-                    objectBuilder = (MyObjectBuilder_CubeBlock)blockBuilder.Clone();
-                    objectBuilder.SetupForProjector();
+                    if ((Vector3I)blockBuilder.Min == cubeMin && blockBuilder.GetId() == cubeBlock.BlockDefinition.Id)
+                    {
+                        objectBuilder = (MyObjectBuilder_CubeBlock)blockBuilder.Clone();
+                        objectBuilder.SetupForProjector();
+                    }
                 }
             }
 
             if (objectBuilder == null)
             {
-                System.Diagnostics.Debug.Fail("Original object builder could not be found! (AlexFlorea)");
+                //Original object builder not found because projector was destroyed
+                //System.Diagnostics.Debug.Fail("Original object builder could not be found! (AlexFlorea)");
                 objectBuilder = cubeBlock.GetObjectBuilder();
                 location.EntityId = MyEntityIdentifier.AllocateId();
             }
 
             objectBuilder.ConstructionInventory = null;
-            bool isAdmin = MySession.Static.IsAdminModeEnabled(Sync.MyId);
-            MyMultiplayer.RaiseEvent(projectorGrid, x => x.BuildBlockRequest, cubeBlock.ColorMaskHSV.PackHSVToUint(), location, objectBuilder, builder, isAdmin, owner);
+            objectBuilder.BuiltBy = builtBy;
+            bool buildInstant = requestInstant && MySession.Static.CreativeToolsEnabled(Sync.MyId);
+            MyMultiplayer.RaiseEvent(projectorGrid, x => x.BuildBlockRequest, cubeBlock.ColorMaskHSV.PackHSVToUint(), location, objectBuilder, builder, buildInstant, owner);
             HideCube(cubeBlock);
         }
         #endregion
@@ -1289,11 +1316,11 @@ namespace Sandbox.Game.Entities.Blocks
         internal void SetNewBlueprint(MyObjectBuilder_CubeGrid gridBuilder)
         {
             m_originalGridBuilder = gridBuilder;
-            
-            var clone = (MyObjectBuilder_CubeGrid)gridBuilder.Clone();
 
-            MyEntities.RemapObjectBuilder(clone);
-            m_clipboard.ProcessCubeGrid(clone);
+            var clone = m_originalGridBuilder;//(MyObjectBuilder_CubeGrid)gridBuilder.Clone();
+
+            //MyEntities.RemapObjectBuilder(clone);
+            //m_clipboard.ProcessCubeGrid(clone);
 
             m_clipboard.SetGridFromBuilder(clone, Vector3.Zero, 0f);
 
@@ -1325,10 +1352,42 @@ namespace Sandbox.Game.Entities.Blocks
             MyMultiplayer.RaiseEvent(this, x => x.OnNewBlueprintSuccess, projectedGrid);
         }
 
-        [Event, Reliable, Server, Broadcast]
+        [Event, Reliable, Server, BroadcastExcept]
         private void OnNewBlueprintSuccess(MyObjectBuilder_CubeGrid projectedGrid)
         {
-            SetNewBlueprint(projectedGrid);
+            if (MyEventContext.Current.IsLocallyInvoked == false)
+            {
+                if (!MySession.Static.IsUserScripter(MyEventContext.Current.Sender.Value))
+                {
+                    if (RemoveScriptsFromProjection(ref projectedGrid))
+                        MyMultiplayer.RaiseEvent(this, x => x.ShowScriptRemoveMessage, MyEventContext.Current.Sender);
+                }
+                SetNewBlueprint(projectedGrid);
+            }
+        }
+
+        private bool RemoveScriptsFromProjection(ref MyObjectBuilder_CubeGrid grid)
+        {
+            bool found = false;
+            foreach (var block in grid.CubeBlocks)
+            {
+                var programmable = block as MyObjectBuilder_MyProgrammableBlock;
+                if (programmable == null)
+                    continue;
+
+                if (programmable.Program != null)
+                {
+                    programmable.Program = null;
+                    found = true;
+                }
+            }
+            return found;
+        }
+
+        [Event, Reliable, Client]
+        private void ShowScriptRemoveMessage()
+        {
+            MyHud.Notifications.Add(new MyHudNotification(MySpaceTexts.Notification_BlueprintScriptRemoved, 5000, MyFontEnum.Red));
         }
 
         public void SendNewOffset(Vector3I positionOffset, Vector3I rotationOffset, bool showOnlyBuildable)
@@ -1385,50 +1444,5 @@ namespace Sandbox.Game.Entities.Blocks
         }
 
         #endregion
-
-        #region ModAPI
-        int ModAPI.Ingame.IMyProjector.ProjectionOffsetX { get { return this.m_projectionOffset.X; } }
-        int ModAPI.Ingame.IMyProjector.ProjectionOffsetY { get { return this.m_projectionOffset.Y; } }
-        int ModAPI.Ingame.IMyProjector.ProjectionOffsetZ { get { return this.m_projectionOffset.Z; } }
-
-        int ModAPI.Ingame.IMyProjector.ProjectionRotX { get { return this.m_projectionRotation.X*90; } }
-        int ModAPI.Ingame.IMyProjector.ProjectionRotY { get { return this.m_projectionRotation.Y * 90; } }
-        int ModAPI.Ingame.IMyProjector.ProjectionRotZ { get { return this.m_projectionRotation.Z* 90; } }
-
-        int ModAPI.Ingame.IMyProjector.RemainingBlocks { get { return this.m_remainingBlocks; } }
-
-
-        bool ModAPI.Ingame.IMyProjector.LoadRandomBlueprint(string searchPattern)
-        {
-            bool success = false;
-            string[] files = System.IO.Directory.GetFiles(Path.Combine(MyFileSystem.ContentPath, "Data", "Blueprints"), searchPattern);
-
-            if (files.Length > 0)
-            {
-                var index = MyRandom.Instance.Next() % files.Length;
-                success = LoadBlueprint(files[index]);
-            }
-            return success;
-        }
-
-        bool ModAPI.Ingame.IMyProjector.LoadBlueprint(string path)
-        {
-            return LoadBlueprint(path);
-        }
-
-        private bool LoadBlueprint(string path)
-        {
-            bool success = false;
-            MyObjectBuilder_Definitions blueprint;
-            blueprint = MyGuiBlueprintScreenBase.LoadPrefab(path);
-
-            if (blueprint != null)
-                success = MyGuiBlueprintScreen.CopyBlueprintPrefabToClipboard(blueprint, m_clipboard);
-
-            OnBlueprintScreen_Closed(null);
-            return success;
-        }
-        #endregion
-
     }
 }

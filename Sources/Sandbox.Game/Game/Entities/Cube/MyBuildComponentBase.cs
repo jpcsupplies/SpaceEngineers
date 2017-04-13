@@ -24,7 +24,6 @@ namespace Sandbox.Game.World
     public abstract class MyBuildComponentBase : MySessionComponentBase
     {
         protected MyComponentList m_materialList = new MyComponentList();
-        protected MyComponentList m_materialListCombined = new MyComponentList();
         protected MyComponentCombiner m_componentCombiner = new MyComponentCombiner();
 
         public DictionaryReader<MyDefinitionId, int> TotalMaterials { get { return m_materialList.TotalMaterials; } }
@@ -32,7 +31,7 @@ namespace Sandbox.Game.World
         public abstract MyInventoryBase GetBuilderInventory(long entityId);
         public abstract MyInventoryBase GetBuilderInventory(MyEntity builder);
 
-        public abstract bool HasBuildingMaterials(MyEntity builder);
+        public abstract bool HasBuildingMaterials(MyEntity builder, bool testTotal = false);
 
         // CH: TODO: This is here just temporarily. We should move it to a better place later, maybe character definition?
         public virtual void AfterCharacterCreate(MyCharacter character)
@@ -49,6 +48,7 @@ namespace Sandbox.Game.World
         public abstract void GetGridSpawnMaterials(MyObjectBuilder_CubeGrid grid);
         public abstract void GetBlockPlacementMaterials(MyCubeBlockDefinition definition, Vector3I position, MyBlockOrientation orientation, MyCubeGrid grid);
         public abstract void GetBlocksPlacementMaterials(HashSet<MyCubeGrid.MyBlockLocation> hashSet, MyCubeGrid grid);
+        public abstract void GetBlockAmountPlacementMaterials(MyCubeBlockDefinition definition, int amount);
         public abstract void GetMultiBlockPlacementMaterials(MyMultiBlockDefinition multiBlockDefinition);
 
         // This function does some modifications to the cube block's object builder before it's built, usually integrity changes, etc...
@@ -80,10 +80,10 @@ namespace Sandbox.Game.World
 
         protected internal void RemoveItemsCombined(MyInventoryBase inventory, int itemAmount, MyDefinitionId itemDefinitionId)
         {
-            m_materialListCombined.Clear();
-            m_materialListCombined.AddMaterial(itemDefinitionId, itemAmount);
-            m_componentCombiner.RemoveItemsCombined(inventory, m_materialListCombined.TotalMaterials);
-            m_materialListCombined.Clear();
+            m_materialList.Clear();
+            m_materialList.AddMaterial(itemDefinitionId, itemAmount);
+            m_componentCombiner.RemoveItemsCombined(inventory, m_materialList.TotalMaterials);
+            m_materialList.Clear();
             return;
         }
     }

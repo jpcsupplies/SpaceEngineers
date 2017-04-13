@@ -2,6 +2,7 @@
 using Sandbox.Engine.Utils;
 using Sandbox.Game.Entities.Blocks;
 using Sandbox.Game.Entities.Cube;
+using Sandbox.Game.EntityComponents;
 using Sandbox.Game.Gui;
 using Sandbox.Game.Localization;
 using Sandbox.Game.Screens.Terminal.Controls;
@@ -16,10 +17,16 @@ namespace Entities.Blocks
     [MyCubeBlockType(typeof(MyObjectBuilder_Projector))]
     public class MySpaceProjector : MyProjectorBase
     {
-
-        static MySpaceProjector()
+        public MySpaceProjector()
         {
+            CreateTerminalControls();
+        }
 
+        protected override void CreateTerminalControls()
+        {
+            if (MyTerminalControlFactory.AreControlsCreated<MySpaceProjector>())
+                return;
+            base.CreateTerminalControls();
             if (!MyFakes.ENABLE_PROJECTOR_BLOCK)
             {
                 return;
@@ -210,7 +217,7 @@ namespace Entities.Blocks
         protected override bool CheckIsWorking()
         {
 
-            if (ResourceSink != null && !ResourceSink.IsPowered)
+            if (ResourceSink != null && !ResourceSink.IsPoweredByType(MyResourceDistributorComponent.ElectricityId))
             {
                 return false;
             }

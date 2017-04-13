@@ -23,13 +23,16 @@ using Sandbox.Engine.Networking;
 using VRage.Game;
 using VRage.Game.Entity;
 using Sandbox.Game.Audio;
+using Sandbox.ModAPI;
+using Sandbox.ModAPI.Weapons;
+using VRage.Audio;
 
 #endregion
 
 namespace Sandbox.Game.Weapons
 {
     [MyEntityType(typeof(MyObjectBuilder_Welder))]
-    public class MyWelder : MyEngineerToolBase
+    public class MyWelder : MyEngineerToolBase, IMyWelder
     {
         private MySoundPair weldSoundIdle = new MySoundPair("ToolPlayWeldIdle");
         private MySoundPair weldSoundWeld = new MySoundPair("ToolPlayWeldMetal");
@@ -51,11 +54,11 @@ namespace Sandbox.Game.Weapons
 
         public struct ProjectionRaycastData
         {
-            public MyProjectorBase.BuildCheckResult raycastResult;
+            public BuildCheckResult raycastResult;
             public MySlimBlock hitCube;
             public MyProjectorBase cubeProjector;
 
-            public ProjectionRaycastData(MyProjectorBase.BuildCheckResult result, MySlimBlock cubeBlock, MyProjectorBase projector)
+            public ProjectionRaycastData(BuildCheckResult result, MySlimBlock cubeBlock, MyProjectorBase projector)
             {
                 raycastResult = result;
                 hitCube = cubeBlock;
@@ -67,7 +70,7 @@ namespace Sandbox.Game.Weapons
             : base(250)
         {
             HasCubeHighlight = true;
-            HighlightColor = Color.Green * 0.45f;
+            HighlightColor = Color.Green * 0.75f;
 			HighlightMaterial = "GizmoDrawLine";
 
             SecondaryLightIntensityLower = 0.4f;
@@ -79,6 +82,7 @@ namespace Sandbox.Game.Weapons
 
         public override void Init(MyObjectBuilder_EntityBase objectBuilder)
         {
+            m_physicalItemId = new MyDefinitionId(typeof(MyObjectBuilder_PhysicalGunObject), "WelderItem");
             if (objectBuilder.SubtypeName != null && objectBuilder.SubtypeName.Length > 0)
                 m_physicalItemId = new MyDefinitionId(typeof(MyObjectBuilder_PhysicalGunObject), objectBuilder.SubtypeName + "Item");
             PhysicalObject = (MyObjectBuilder_PhysicalGunObject)MyObjectBuilderSerializer.CreateNewObject(m_physicalItemId);
@@ -193,11 +197,11 @@ namespace Sandbox.Game.Weapons
 
         public override bool CanShoot(MyShootActionEnum action, long shooter, out MyGunStatusEnum status)
         {
-            if (action == MyShootActionEnum.SecondaryAction)
-            {
-				status = MyGunStatusEnum.OK;
-                return true;
-            }
+            //if (action == MyShootActionEnum.SecondaryAction)
+            //{
+            //    status = MyGunStatusEnum.OK;
+            //    return true;
+            //}
 
             if (!base.CanShoot(action, shooter, out status))
             {
@@ -210,7 +214,7 @@ namespace Sandbox.Game.Weapons
             if (block == null)
             {
                 var info = FindProjectedBlock();
-                if (info.raycastResult == MyProjectorBase.BuildCheckResult.OK)
+                if (info.raycastResult == BuildCheckResult.OK)
                 {
                     return true;
                 }
@@ -238,7 +242,7 @@ namespace Sandbox.Game.Weapons
 
             {
                 var info = FindProjectedBlock();
-                if (info.raycastResult == MyProjectorBase.BuildCheckResult.OK)
+                if (info.raycastResult == BuildCheckResult.OK)
                 {
                     return true;
                 }
@@ -266,6 +270,29 @@ namespace Sandbox.Game.Weapons
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Determines whether the projected grid still fits within block limits set by server after a new block is added
+        /// </summary>
+        private bool IsWithinWorldLimits(MyCubeGrid grid, long ownerID, string name)
+        {
+            if (!MySession.Static.EnableBlockLimits) return true;
+
+            bool withinLimits = true;
+            withinLimits &= MySession.Static.MaxGridSize == 0 || grid.BlocksCount <= MySession.Static.MaxGridSize;
+            var identity = MySession.Static.Players.TryGetIdentity(ownerID);
+            if (MySession.Static.MaxBlocksPerPlayer != 0 && identity != null)
+            {
+                withinLimits &= identity.BlocksBuilt < MySession.Static.MaxBlocksPerPlayer + identity.BlockLimitModifier;
+            }
+            short typeLimit = MySession.Static.GetBlockTypeLimit(name);
+            int typeBuilt;
+            if (identity != null && typeLimit > 0)
+            {
+                withinLimits &= (identity.BlockTypeBuilt.TryGetValue(name, out typeBuilt) ? typeBuilt : 0) < typeLimit;
+            }
+            return withinLimits;
         }
 
         private MyProjectorBase GetProjector(MySlimBlock block)
@@ -298,15 +325,23 @@ namespace Sandbox.Game.Weapons
                 else if (Owner == MySession.Static.LocalCharacter)
                 {
                     var info = FindProjectedBlock();
-                    if (info.raycastResult == MyProjectorBase.BuildCheckResult.OK)
+                    if (info.raycastResult == BuildCheckResult.OK)
                     {
-                        if (MySession.Static.CreativeMode || MyBlockBuilderBase.SpectatorIsBuilding || Owner.CanStartConstruction(info.hitCube.BlockDefinition) || MySession.Static.IsAdminModeEnabled(Sync.MyId))
+                        if (IsWithinWorldLimits(info.cubeProjector.CubeGrid, Owner.ControllerInfo.Controller.Player.Identity.IdentityId, info.hitCube.BlockDefinition.BlockPairName))
                         {
-                            info.cubeProjector.Build(info.hitCube, Owner.ControllerInfo.Controller.Player.Identity.IdentityId, Owner.EntityId);
+                            if (MySession.Static.CreativeMode || MyBlockBuilderBase.SpectatorIsBuilding || Owner.CanStartConstruction(info.hitCube.BlockDefinition) || MySession.Static.CreativeToolsEnabled(Sync.MyId))
+                            {
+                                info.cubeProjector.Build(info.hitCube, Owner.ControllerInfo.Controller.Player.Identity.IdentityId, Owner.EntityId, builtBy: Owner.ControllerInfo.Controller.Player.Identity.IdentityId);
+                            }
+                            else
+                            {
+                                MyBlockPlacerBase.OnMissingComponents(info.hitCube.BlockDefinition);
+                            }
                         }
                         else
                         {
-                            MyBlockPlacerBase.OnMissingComponents(info.hitCube.BlockDefinition);
+                            MyGuiAudio.PlaySound(MyGuiSounds.HudUnable);
+                            MyHud.Notifications.Add(MyNotificationSingletons.ShipOverLimits);
                         }
                     }
                 }
@@ -454,9 +489,9 @@ namespace Sandbox.Game.Weapons
             }
 
             var info = FindProjectedBlock();
-            if (info.raycastResult != MyProjectorBase.BuildCheckResult.NotFound)
+            if (info.raycastResult != BuildCheckResult.NotFound)
             {
-                if (info.raycastResult == MyProjectorBase.BuildCheckResult.OK)
+                if (info.raycastResult == BuildCheckResult.OK)
                 {
                     MyCubeBuilder.DrawSemiTransparentBox(info.hitCube.CubeGrid, info.hitCube, Color.Green.ToVector4(), true);
                     m_targetProjectionCube = info.hitCube.Position;
@@ -464,11 +499,11 @@ namespace Sandbox.Game.Weapons
 
                     return;
                 }
-                else if (info.raycastResult == MyProjectorBase.BuildCheckResult.IntersectedWithGrid || info.raycastResult == MyProjectorBase.BuildCheckResult.IntersectedWithSomethingElse)
+                else if (info.raycastResult == BuildCheckResult.IntersectedWithGrid || info.raycastResult == BuildCheckResult.IntersectedWithSomethingElse)
                 {
                     MyCubeBuilder.DrawSemiTransparentBox(info.hitCube.CubeGrid, info.hitCube, Color.Red.ToVector4(), true);
                 }
-                else if (info.raycastResult == MyProjectorBase.BuildCheckResult.NotConnected)
+                else if (info.raycastResult == BuildCheckResult.NotConnected)
                 {
                     MyCubeBuilder.DrawSemiTransparentBox(info.hitCube.CubeGrid, info.hitCube, Color.Yellow.ToVector4(), true);
                 }
@@ -506,7 +541,7 @@ namespace Sandbox.Game.Weapons
                         {
                             var projectionBlock = blocks[i];
                             var canBuild = projector.CanBuild(projectionBlock.CubeBlock, true);
-                            if (canBuild == MyProjectorBase.BuildCheckResult.OK)
+                            if (canBuild == BuildCheckResult.OK)
                             {
                                 farthestVisibleBlock = new ProjectionRaycastData
                                 {
@@ -515,7 +550,7 @@ namespace Sandbox.Game.Weapons
                                     cubeProjector = projector,
                                 };
                             }
-                            else if (canBuild == MyProjectorBase.BuildCheckResult.AlreadyBuilt)
+                            else if (canBuild == BuildCheckResult.AlreadyBuilt)
                             {
                                 farthestVisibleBlock = null;
                             }
@@ -530,7 +565,7 @@ namespace Sandbox.Game.Weapons
             }
             return new ProjectionRaycastData
             {
-                raycastResult = MyProjectorBase.BuildCheckResult.NotFound,
+                raycastResult = BuildCheckResult.NotFound,
             };
         }
 

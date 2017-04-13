@@ -24,22 +24,15 @@ using Sandbox.ModAPI.Interfaces;
 using VRage.Game;
 using VRage.Game.Entity;
 using VRage.Game.ModAPI.Ingame;
+using VRage.Profiler;
+using VRage.Sync;
 using IMyInventory = VRage.Game.ModAPI.Ingame.IMyInventory;
 
 namespace Sandbox.Game.Entities
 {
     [MyCubeBlockType(typeof(MyObjectBuilder_Reactor))]
-    class MyReactor : MyFunctionalBlock, IMyConveyorEndpointBlock, IMyReactor, IMyInventoryOwner
+    public class MyReactor : MyFunctionalBlock, IMyConveyorEndpointBlock, IMyReactor, IMyInventoryOwner
     {
-        static MyReactor()
-        {
-            var useConveyorSystem = new MyTerminalControlOnOffSwitch<MyReactor>("UseConveyor", MySpaceTexts.Terminal_UseConveyorSystem);
-            useConveyorSystem.Getter = (x) => (x).UseConveyorSystem;
-            useConveyorSystem.Setter = (x, v) => (x).UseConveyorSystem = v;
-            useConveyorSystem.EnableToggleAction();
-            MyTerminalControlFactory.AddControl(useConveyorSystem);
-        }
-
         private MyReactorDefinition m_reactorDefinition;
 		public MyReactorDefinition ReactorDefinition { get { return m_reactorDefinition; } }
 
@@ -64,9 +57,27 @@ namespace Sandbox.Game.Entities
 
         public MyReactor()
         {
+#if XB1 // XB1_SYNC_NOREFLECTION
+            m_remainingPowerCapacity = SyncType.CreateAndAddProp<float>();
+            m_useConveyorSystem = SyncType.CreateAndAddProp<bool>();
+#endif // XB1
+            CreateTerminalControls();
+
 			SourceComp = new MyResourceSourceComponent();
             m_remainingPowerCapacity.ValueChanged += (x) => RemainingCapacityChanged();
             m_remainingPowerCapacity.ValidateNever();
+        }
+
+        protected override void CreateTerminalControls()
+        {
+            if (MyTerminalControlFactory.AreControlsCreated<MyReactor>())
+                return;
+            base.CreateTerminalControls();
+            var useConveyorSystem = new MyTerminalControlOnOffSwitch<MyReactor>("UseConveyor", MySpaceTexts.Terminal_UseConveyorSystem);
+            useConveyorSystem.Getter = (x) => (x).UseConveyorSystem;
+            useConveyorSystem.Setter = (x, v) => (x).UseConveyorSystem = v;
+            useConveyorSystem.EnableToggleAction();
+            MyTerminalControlFactory.AddControl(useConveyorSystem);
         }
 
         public override void Init(MyObjectBuilder_CubeBlock objectBuilder, MyCubeGrid cubeGrid)

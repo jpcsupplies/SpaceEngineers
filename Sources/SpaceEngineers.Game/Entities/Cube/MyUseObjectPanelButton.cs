@@ -14,6 +14,7 @@ using VRage.Input;
 using VRage.ModAPI;
 using VRage.Utils;
 using VRageMath;
+using VRageRender.Import;
 
 namespace SpaceEngineers.Game.Entities.Cube
 {
@@ -64,6 +65,11 @@ namespace SpaceEngineers.Game.Entities.Cube
             {
                 return m_buttonPanel.Render.GetRenderObjectID();
             }
+        }
+
+        public override int InstanceID
+        {
+            get { return -1; }
         }
 
         public override bool ShowOverlay
@@ -130,6 +136,7 @@ namespace SpaceEngineers.Game.Entities.Cube
                         m_buttonDesc.Coords = ActivationMatrix.Translation;
                         m_buttonDesc.ShowOnHud = true;
                         m_buttonDesc.DiscardAt = null;
+                        m_buttonDesc.AlwaysVisible = true;
                     }
 
                     MyHud.ButtonPanelMarkers.RegisterMarker(m_buttonDesc);
